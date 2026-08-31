@@ -16,10 +16,12 @@ jobs:
         
     - name: Install Theos Manually
       run: |
+        rm -rf ~/theos
         git clone --recursive https://github.com/theos/theos.git ~/theos
         
     - name: Install iOS SDKs
       run: |
+        rm -rf ~/theos/sdks
         git clone https://github.com/theos/sdks.git ~/theos/sdks
         
     - name: Build Package
