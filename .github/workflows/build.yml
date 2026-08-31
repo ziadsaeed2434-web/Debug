@@ -10,10 +10,17 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Install Theos & Dependencies
+    - name: Install Dependencies
       run: |
-        brew install ldid make
-        bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+        brew install ldid make dpkg
+        
+    - name: Install Theos Manually
+      run: |
+        git clone --recursive https://github.com/theos/theos.git ~/theos
+        
+    - name: Install iOS SDKs
+      run: |
+        git clone https://github.com/theos/sdks.git ~/theos/sdks
         
     - name: Build Package
       run: |
