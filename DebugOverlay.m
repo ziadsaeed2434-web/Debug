@@ -29,6 +29,18 @@
     return self;
 }
 
+- (void)showOverlay {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.overlayWindow.hidden = NO;
+    });
+}
+
+- (void)hideOverlay {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.overlayWindow.hidden = YES;
+    });
+}
+
 - (void)setupUI {
     UIWindowScene *scene = nil;
     for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
@@ -64,7 +76,7 @@
     self.floatingButton.layer.borderColor = [UIColor greenColor].CGColor;
     [self.floatingButton addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:__attribute__((unused)) @selector(handlePan:)];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [self.floatingButton addGestureRecognizer:pan];
     
     [vc.view addSubview:self.floatingButton];
@@ -95,7 +107,7 @@
     self.logTableView.separatorStyle = UITableViewCellSeparatorStyleNone;
     [self.panelView addSubview:self.logTableView];
     
-    // Close & Clear Buttons
+    // Close Button
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(screenW - 90, screenH - 300, 70, 30);
     [closeBtn setTitle:@"Close" forState:UIControlStateNormal];
@@ -104,6 +116,14 @@
     [self.panelView addSubview:closeBtn];
     
     [vc.view addSubview:self.panelView];
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)gesture {
+    UIView *btn = gesture.view;
+    CGPoint translation = [gesture translationInView:btn.superview];
+    CGPoint center = CGPointMake(btn.center.x + translation.x, btn.center.y + translation.y);
+    btn.center = center;
+    [gesture setTranslation:CGPointZero inView:btn.superview];
 }
 
 - (void)togglePanel {
