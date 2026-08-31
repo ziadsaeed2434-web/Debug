@@ -19,23 +19,18 @@ static double randomInRange(double min, double max) {
     return min + (arc4random_uniform(UINT32_MAX) / (double)UINT32_MAX) * (max - min);
 }
 
-static void rotateIDFA(void) {
-    currentIDFA = [[NSUUID UUID] UUIDString];
-}
-
 static void generateAtlantaResidentialIP(void) {
     @autoreleasepool {
         if (!atlantaResidentialSubnets) {
             atlantaResidentialSubnets = @[
-                @{@"prefix": @"73.140.", @"min": @0, @"max": @255},   
-                @{@"prefix": @"67.160.", @"min": @0, @"max": @255},   
-                @{@"prefix": @"104.128.", @"min": @0, @"max": @255}, 
-                @{@"prefix": @"24.98.",   @"min": @0, @"max": @255},   
-                @{@"prefix": @"50.130.",  @"min": @0, @"max": @255}    
+                @{@"prefix": @"73.140."},   
+                @{@"prefix": @"67.160."},   
+                @{@"prefix": @"104.128."}, 
+                @{@"prefix": @"24.98."},   
+                @{@"prefix": @"50.130."}    
             ];
         }
         
-        // تم تصحيح الأقواس هنا بالكامل
         NSDictionary *subnetInfo = atlantaResidentialSubnets[arc4random_uniform((uint32_t)[atlantaResidentialSubnets count])];
         NSString *prefix = subnetInfo[@"prefix"];
         
@@ -43,45 +38,14 @@ static void generateAtlantaResidentialIP(void) {
         int fourthOctet = arc4random_uniform(254) + 1;
         
         currentAtlantaResidentialIP = [NSString stringWithFormat:@"%@%d.%d", prefix, thirdOctet, fourthOctet];
-    }
-}
-
-// دالة إعادة الضبط الآمنة بالكامل
-static void performFullSessionReset(void) {
-    @autoreleasepool {
-        generateAtlantaResidentialIP();
-        rotateIDFA();
-        
+        currentIDFA = [[NSUUID UUID] UUIDString];
         currentLatitude = randomInRange(ATLANTA_LAT_MIN, ATLANTA_LAT_MAX);
         currentLongitude = randomInRange(ATLANTA_LNG_MIN, ATLANTA_LNG_MAX);
-        
-        NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
-        if (bundleID && [bundleID isEqualToString:@"com.codebysms"]) {
-            // 1. مسح الـ NSUserDefaults بأمان
-            [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bundleID];
-            [[NSUserDefaults standardUserDefaults] synchronize];
-            
-            // 2. مسح ملفات الكاش (Caches) بأمان تام
-            NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
-            if (cacheDir) {
-                NSFileManager *fileManager = [NSFileManager defaultManager];
-                NSArray *contents = [fileManager contentsOfDirectoryAtPath:cacheDir error:nil];
-                for (NSString *file in contents) {
-                    [fileManager removeItemAtPath:[cacheDir stringByAppendingPathComponent:file] error:nil];
-                }
-            }
-            
-            // 3. مسح الكوكيز
-            NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
-            for (NSHTTPCookie *cookie in [cookieStorage cookies]) {
-                [cookieStorage deleteCookie:cookie];
-            }
-        }
     }
 }
 
 // ==========================================
-// Hooks الشبكة الآمنة
+// 1. حقن الـ IP السكني في طلبات الشبكة بأمان
 // ==========================================
 %hook NSURLSession
 
@@ -91,7 +55,6 @@ static void performFullSessionReset(void) {
         [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Forwarded-For"];
         [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"Client-IP"];
         [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Real-IP"];
-        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"True-Client-IP"];
         return %orig(mutableReq, completionHandler);
     }
     return %orig(request, completionHandler);
@@ -103,7 +66,6 @@ static void performFullSessionReset(void) {
         [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Forwarded-For"];
         [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"Client-IP"];
         [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Real-IP"];
-        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"True-Client-IP"];
         return %orig(mutableReq);
     }
     return %orig(request);
@@ -112,7 +74,7 @@ static void performFullSessionReset(void) {
 %end
 
 // ==========================================
-// Hooks الموقع الجغرافي
+// 2. تدوير الموقع الجغرافي (أتلانتا)
 // ==========================================
 %hook CLLocationManager
 
@@ -142,7 +104,7 @@ static void performFullSessionReset(void) {
 %end
 
 // ==========================================
-// Hooks المعرفات
+// 3. خداع المعرفات
 // ==========================================
 %hook ASIdentifierManager
 
@@ -164,22 +126,11 @@ static void performFullSessionReset(void) {
 %end
 
 // ==========================================
-// نقطة البداية الآمنة جداً
+// 4. نقطة الحقن العامة الآمنة
 // ==========================================
 %ctor {
     @autoreleasepool {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
-            if (bundleIdentifier && [bundleIdentifier isEqualToString:@"com.codebysms"]) {
-                performFullSessionReset();
-                
-                [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillEnterForegroundNotification
-                                                                  object:nil
-                                                                   queue:[NSOperationQueue mainQueue]
-                                                              usingBlock:^(NSNotification *note) {
-                    performFullSessionReset();
-                }];
-            }
-        });
+        // توليد البيانات الأولية بصمت تام ودون مسح أي ملفات قد تثير حماية التطبيق
+        generateAtlantaResidentialIP();
     }
 }
