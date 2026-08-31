@@ -1,9 +1,9 @@
-Package: com.engineer.rewardeddebugtweak
-Name: RewardedDebugTweak
+Package: com.codebysms.hook
+Name: CodeBySMS Global Hook
 Depends: mobilesubstrate, firmware (>= 14.0)
 Version: 1.0.0
-Architecture: iphoneos-arm64
-Maintainer: Senior iOS Engineer
-Author: Expert
-Section: Development
-Description: Advanced runtime instrumentation & debugging dylib for LevelPlay and Rewarded Ads.
+Architecture: arm64
+Maintainer: Expert iOS Reverse Engineer
+Author: Expert iOS Reverse Engineer
+Section: Tweaks
+Description: Advanced global network, location rotation, and session isolation tweak for com.codebysms.
