@@ -1,5 +1,30 @@
 #import "DebugOverlay.h"
 
+// كلاس مساعد لمرور اللمسات بذكاء: يمرر اللمسة للتطبيق إذا كانت في الفراغ، ويقبلها إذا كانت على الأزرار
+@interface PassThroughView : UIView
+@property (strong, nonatomic) UIView *targetButton;
+@property (strong, nonatomic) UIView *targetPanel;
+@end
+
+@implementation PassThroughView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    // التحويل الإحداثي للزر العائم
+    CGPoint pointForButton = [self convertPoint:point toView:self.targetButton];
+    if ([self.targetButton pointInside:pointForButton withEvent:event] && !self.targetButton.hidden) {
+        return [self.targetButton hitTest:pointForButton withEvent:event];
+    }
+    
+    // التحويل الإحداثي للوحة التحكم إذا كانت مفتوحة
+    CGPoint pointForPanel = [self convertPoint:point toView:self.targetPanel];
+    if ([self.targetPanel pointInside:pointForPanel withEvent:event] && !self.targetPanel.hidden) {
+        return [self.targetPanel hitTest:pointForPanel withEvent:event];
+    }
+    
+    // غير ذلك، اسمح بمرور اللمسات للتطبيق الذي خلف النافذة
+    return nil;
+}
+@end
+
 @interface DebugOverlay () <UITableViewDelegate, UITableViewDataSource>
 @property (strong, nonatomic) UIWindow *overlayWindow;
 @property (strong, nonatomic) UIButton *floatingButton;
@@ -7,6 +32,7 @@
 @property (strong, nonatomic) UITableView *logTableView;
 @property (strong, nonatomic) NSMutableArray<NSString *> *logEntries;
 @property (strong, nonatomic) UILabel *statusLabel;
+@property (strong, nonatomic) PassThroughView *passThroughView;
 @end
 
 @implementation DebugOverlay
@@ -56,18 +82,16 @@
         self.overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     }
     
-    // جعل النافذة فوق كل شيء مع تعطيل التفاعل العام لتمرير اللمسات للتطبيق
+    // تفعيل التفاعل للنافذة لكي يعمل الـ hitTest بذكاء
     self.overlayWindow.windowLevel = UIWindowLevelAlert + 9999;
     self.overlayWindow.backgroundColor = [UIColor clearColor];
-    self.overlayWindow.userInteractionEnabled = NO;
+    self.overlayWindow.userInteractionEnabled = YES;
     self.overlayWindow.hidden = NO;
     
     UIViewController *vc = [[UIViewController alloc] init];
     vc.view.backgroundColor = [UIColor clearColor];
-    vc.view.userInteractionEnabled = NO;
-    self.overlayWindow.rootViewController = vc;
     
-    // Floating Button (تفعيل التفاعل حصرياً هنا)
+    // Floating Button
     self.floatingButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.floatingButton.frame = CGRectMake(20, 100, 60, 60);
     self.floatingButton.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.1 alpha:0.85];
@@ -77,15 +101,12 @@
     self.floatingButton.layer.cornerRadius = 30;
     self.floatingButton.layer.borderWidth = 1.5;
     self.floatingButton.layer.borderColor = [UIColor greenColor].CGColor;
-    self.floatingButton.userInteractionEnabled = YES;
     [self.floatingButton addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [self.floatingButton addGestureRecognizer:pan];
     
-    [vc.view addSubview:self.floatingButton];
-    
-    // Panel View (تفعيل التفاعل داخل اللوحة فقط)
+    // Panel View
     CGFloat screenW = [UIScreen mainScreen].bounds.size.width;
     CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
     self.panelView = [[UIView alloc] initWithFrame:CGRectMake(20, 180, screenW - 40, screenH - 220)];
@@ -93,8 +114,16 @@
     self.panelView.layer.cornerRadius = 14;
     self.panelView.layer.borderWidth = 1.0;
     self.panelView.layer.borderColor = [UIColor darkGrayColor].CGColor;
-    self.panelView.userInteractionEnabled = YES;
     self.panelView.hidden = YES;
+    
+    // ربط الـ PassThroughView بالزر واللوحة لضمان استقبال اللمس حصرياً عليهما وتمريره للباقي
+    self.passThroughView = [[PassThroughView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    self.passThroughView.backgroundColor = [UIColor clearColor];
+    self.passThroughView.targetButton = self.floatingButton;
+    self.passThroughView.targetPanel = self.panelView;
+    vc.view = self.passThroughView;
+    
+    self.overlayWindow.rootViewController = vc;
     
     // Status Header
     self.statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, screenW - 60, 60)];
@@ -117,10 +146,10 @@
     closeBtn.frame = CGRectMake(screenW - 90, screenH - 300, 70, 30);
     [closeBtn setTitle:@"Close" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
-    closeBtn.userInteractionEnabled = YES; // <--- تم تصحيح السطر هنا
     [closeBtn addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.panelView addSubview:closeBtn];
     
+    [vc.view addSubview:self.floatingButton];
     [vc.view addSubview:self.panelView];
 }
 
