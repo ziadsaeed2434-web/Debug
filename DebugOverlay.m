@@ -1,5 +1,20 @@
 #import "DebugOverlay.h"
 
+// كلاس مساعد لضمان مرور اللمسات من خلال المساحات الفارغة للنافذة
+@interface PassThroughView : UIView
+@end
+
+@implementation PassThroughView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hitView = [super hitTest:point withEvent:event];
+    // إذا كانت اللمسة واقعة على الـ View الرئيسي للـ UIViewController وليست على أزرار أو لوحة التحكم، اسمح بمرورها للتطبيق
+    if (hitView == self) {
+        return nil;
+    }
+    return hitView;
+}
+@end
+
 @interface DebugOverlay () <UITableViewDelegate, UITableViewDataSource>
 @property (strong, nonatomic) UIWindow *overlayWindow;
 @property (strong, nonatomic) UIButton *floatingButton;
@@ -56,12 +71,17 @@
         self.overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     }
     
+    // جعل النافذة فوق كل شيء ولكن تسمح بمرور الأحداث
     self.overlayWindow.windowLevel = UIWindowLevelAlert + 9999;
     self.overlayWindow.backgroundColor = [UIColor clearColor];
+    self.overlayWindow.userInteractionEnabled = YES;
     self.overlayWindow.hidden = NO;
     
     UIViewController *vc = [[UIViewController alloc] init];
-    vc.view.backgroundColor = [UIColor clearColor];
+    PassThroughView *passThroughView = [[PassThroughView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    passThroughView.backgroundColor = [UIColor clearColor];
+    vc.view = passThroughView;
+    
     self.overlayWindow.rootViewController = vc;
     
     // Floating Button
@@ -96,7 +116,7 @@
     self.statusLabel.textColor = [UIColor whiteColor];
     self.statusLabel.font = [UIFont fontWithName:@"Courier" size:10];
     self.statusLabel.numberOfLines = 0;
-    self.statusLabel.text = @"[ADS-DEBUG] Initializing Runtime Inspector...\nLevelPlay: Checking... | Vungle: Checking...";
+    self.statusLabel.text = @"[ADS-DEBUG] Runtime Inspector Active\nTarget: com.codebysms";
     [self.panelView addSubview:self.statusLabel];
     
     // TableView for Logs
@@ -152,7 +172,7 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    static NSString *cellID = @"LogCell";
+    static NSString *cellID = `LogCell`;
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellID];
