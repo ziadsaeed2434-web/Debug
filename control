@@ -1,0 +1,9 @@
+Package: com.engineer.rewardeddebugtweak
+Name: RewardedDebugTweak
+Depends: mobilesubstrate, firmware (>= 14.0)
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Maintainer: Senior iOS Engineer
+Author: Expert
+Section: Development
+Description: Advanced runtime instrumentation & debugging dylib for LevelPlay and Rewarded Ads.
