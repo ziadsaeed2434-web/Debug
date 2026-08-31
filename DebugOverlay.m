@@ -1,19 +1,5 @@
 #import "DebugOverlay.h"
 
-// كلاس مساعد لضمان مرور اللمسات من خلال المساحات الفارغة للنافذة
-@interface PassThroughView : UIView
-@end
-
-@implementation PassThroughView
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    UIView *hitView = [super hitTest:point withEvent:event];
-    if (hitView == self) {
-        return nil;
-    }
-    return hitView;
-}
-@end
-
 @interface DebugOverlay () <UITableViewDelegate, UITableViewDataSource>
 @property (strong, nonatomic) UIWindow *overlayWindow;
 @property (strong, nonatomic) UIButton *floatingButton;
@@ -70,18 +56,18 @@
         self.overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     }
     
-    // جعل النافذة فوق كل شيء ولكن تعطيل التفاعل العام لكي تمر اللمسات تماماً للتطبيق
+    // جعل النافذة فوق كل شيء مع تعطيل التفاعل العام لتمرير اللمسات للتطبيق
     self.overlayWindow.windowLevel = UIWindowLevelAlert + 9999;
     self.overlayWindow.backgroundColor = [UIColor clearColor];
-    self.overlayWindow.userInteractionEnabled = NO; // <--- هذا هو التعديل الجذري لمنع حجب اللمس
+    self.overlayWindow.userInteractionEnabled = NO;
     self.overlayWindow.hidden = NO;
     
     UIViewController *vc = [[UIViewController alloc] init];
     vc.view.backgroundColor = [UIColor clearColor];
-    vc.view.userInteractionEnabled = NO; // <--- تعطيل التفاعل على الـ View الرئيسي
+    vc.view.userInteractionEnabled = NO;
     self.overlayWindow.rootViewController = vc;
     
-    // Floating Button (تفعيل التفاعل حصرياً للزر العائم)
+    // Floating Button (تفعيل التفاعل حصرياً هنا)
     self.floatingButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.floatingButton.frame = CGRectMake(20, 100, 60, 60);
     self.floatingButton.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.1 alpha:0.85];
@@ -91,7 +77,7 @@
     self.floatingButton.layer.cornerRadius = 30;
     self.floatingButton.layer.borderWidth = 1.5;
     self.floatingButton.layer.borderColor = [UIColor greenColor].CGColor;
-    self.floatingButton.userInteractionEnabled = YES; // <--- السماح باللمس هنا فقط
+    self.floatingButton.userInteractionEnabled = YES;
     [self.floatingButton addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
@@ -99,7 +85,7 @@
     
     [vc.view addSubview:self.floatingButton];
     
-    // Panel View (تفعيل التفاعل داخل لوحة التحكم فقط)
+    // Panel View (تفعيل التفاعل داخل اللوحة فقط)
     CGFloat screenW = [UIScreen mainScreen].bounds.size.width;
     CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
     self.panelView = [[UIView alloc] initWithFrame:CGRectMake(20, 180, screenW - 40, screenH - 220)];
@@ -107,7 +93,7 @@
     self.panelView.layer.cornerRadius = 14;
     self.panelView.layer.borderWidth = 1.0;
     self.panelView.layer.borderColor = [UIColor darkGrayColor].CGColor;
-    self.panelView.userInteractionEnabled = YES; // <--- السماح باللمس داخل اللوحة
+    self.panelView.userInteractionEnabled = YES;
     self.panelView.hidden = YES;
     
     // Status Header
@@ -131,13 +117,12 @@
     closeBtn.frame = CGRectMake(screenW - 90, screenH - 300, 70, 30);
     [closeBtn setTitle:@"Close" forState:UIControlStateNormal];
     [closeBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
-    [closeBtn userInteractionEnabled = YES];
+    closeBtn.userInteractionEnabled = YES; // <--- تم تصحيح السطر هنا
     [closeBtn addTarget:self action:@selector(togglePanel) forControlEvents:UIControlEventTouchUpInside];
     [self.panelView addSubview:closeBtn];
     
     [vc.view addSubview:self.panelView];
 }
-
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
     UIView *btn = gesture.view;
