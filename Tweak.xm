@@ -25,15 +25,20 @@
             else if ([url.path containsString:@"init"]) reqType = @"INIT";
             else if ([url.path containsString:@"reward"] || [url.path containsString:@"sdk"]) reqType = @"REWARD_LOG";
             
+            // تسجيل تفاصيل الشبكة الأساسية
             [[DebugOverlay sharedInstance] logNetwork:host method:request.HTTPMethod status:status sdk:sdkName type:reqType];
             
             if (error) {
                 [[DebugOverlay sharedInstance] logEvent:@"ERROR" message:[NSString stringWithFormat:@"Network Error on %@: %@", host, error.localizedDescription]];
-            } else if (status == 200 && data) {
-                // فحص استجابات No-Fill في الـ JSON بحذر
+            } else if (data) {
+                // فحص وتحليل جسم الاستجابة (Response Body) بدقة
                 NSString *respString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                if (respString && ([respString containsString:@"no_fill"] || [respString containsString:@"NO_FILL"])) {
-                    [[DebugOverlay sharedInstance] logEvent:@"NO_FILL" message:[NSString stringWithFormat:@"Received NO_FILL from %@", host]];
+                if (respString) {
+                    if ([respString containsString:@"no_fill"] || [respString containsString:@"NO_FILL"] || [respString length] < 50) {
+                        [[DebugOverlay sharedInstance] logEvent:@"NO_FILL" message:[NSString stringWithFormat:@"Body: %@", respString]];
+                    } else if (status == 200) {
+                        [[DebugOverlay sharedInstance] logEvent:@"AD_RESP" message:[NSString stringWithFormat:@"Success Body len: %lu", (unsigned long)respString.length]];
+                    }
                 }
             }
             
