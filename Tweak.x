@@ -14,7 +14,6 @@ static double currentLatitude = 33.7490;
 static double currentLongitude = -84.3880;
 static NSString *currentIDFA = nil;
 static NSString *currentAtlantaResidentialIP = nil;
-
 static NSArray *atlantaResidentialSubnets = nil;
 
 static double randomInRange(double min, double max) {
@@ -25,30 +24,29 @@ static void rotateIDFA(void) {
     currentIDFA = [[NSUUID UUID] UUIDString];
 }
 
-// دالة لاختيار وتوليد IP حقيقي وسكني من نطاقات أتلانتا الحقيقية
 static void generateAtlantaResidentialIP(void) {
-    if (!atlantaResidentialSubnets) {
-        // [تصحيح] إضافة علامة @ قبل الأرقام داخل القواميس Objective-C Literals
-        atlantaResidentialSubnets = @[
-            @{@"prefix": @"73.140.", @"min": @0, @"max": @255},   
-            @{@"prefix": @"67.160.", @"min": @0, @"max": @255},   
-            @{@"prefix": @"104.128.", @"min": @0, @"max": @255}, 
-            @{@"prefix": @"24.98.",   @"min": @0, @"max": @255},   
-            @{@"prefix": @"50.130.",  @"min": @0, @"max": @255}    
-        ];
+    @autoreleasepool {
+        if (!atlantaResidentialSubnets) {
+            atlantaResidentialSubnets = @[
+                @{@"prefix": @"73.140.", @"min": @0, @"max": @255},   
+                @{@"prefix": @"67.160.", @"min": @0, @"max": @255},   
+                @{@"prefix": @"104.128.", @"min": @0, @"max": @255}, 
+                @{@"prefix": @"24.98.",   @"min": @0, @"max": @255},   
+                @{@"prefix": @"50.130.",  @"min": @0, @"max": @255}    
+            ];
+        }
+        
+        NSDictionary *subnetInfo = atlantaResidentialSubnets[arc4random_uniform((uint32_t)[atlantaResidentialSubnets count])];
+        NSString *prefix = subnetInfo[@"prefix"];
+        
+        int thirdOctet = arc4random_uniform(254) + 1;
+        int fourthOctet = arc4random_uniform(254) + 1;
+        
+        currentAtlantaResidentialIP = [NSString stringWithFormat:@"%@%d.%d", prefix, thirdOctet, fourthOctet];
     }
-    
-    // [تصحيح] إضافة الأقواس المفقودة لاستخراج العنصر من المصفوفة بشكل صحيح
-    NSDictionary *subnetInfo = atlantaResidentialSubnets[arc4random_uniform((uint32_t)[atlantaResidentialSubnets count])];
-    NSString *prefix = subnetInfo[@"prefix"];
-    
-    int thirdOctet = arc4random_uniform(254) + 1;
-    int fourthOctet = arc4random_uniform(254) + 1;
-    
-    currentAtlantaResidentialIP = [NSString stringWithFormat:@"%@%d.%d", prefix, thirdOctet, fourthOctet];
 }
 
-// دالة إعادة الضبط الشامل للجلسة
+// دالة إعادة الضبط الشامل بشكل آمن
 static void performFullSessionReset(void) {
     @autoreleasepool {
         generateAtlantaResidentialIP();
@@ -58,24 +56,22 @@ static void performFullSessionReset(void) {
         currentLongitude = randomInRange(ATLANTA_LNG_MIN, ATLANTA_LNG_MAX);
         
         NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
-        if ([bundleID isEqualToString:@"com.codebysms"]) {
+        if (bundleID && [bundleID isEqualToString:@"com.codebysms"]) {
+            // مسح الـ NSUserDefaults بحذر
             [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bundleID];
             [[NSUserDefaults standardUserDefaults] synchronize];
             
-            // [تصحيح] استخدام NSCachesDirectory بدلاً من CachesDirectory الخاطئة
+            // مسح الملفات المؤقتة Caches
             NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
-            NSFileManager *fileManager = [NSFileManager defaultManager];
-            for (NSString *file in [fileManager contentsOfDirectoryAtPath:cacheDir error:nil]) {
-                [fileManager removeItemAtPath:[cacheDir stringByAppendingPathComponent:file] error:nil];
+            if (cacheDir) {
+                NSFileManager *fileManager = [NSFileManager defaultManager];
+                NSArray *contents = [fileManager contentsOfDirectoryAtPath:cacheDir error:nil];
+                for (NSString *file in contents) {
+                    [fileManager removeItemAtPath:[cacheDir stringByAppendingPathComponent:file] error:nil];
+                }
             }
             
-            if (@available(iOS 9.0, *)) {
-                NSSet *websiteDataTypes = [WKWebsiteDataStore allWebsiteDataTypes];
-                [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:websiteDataTypes 
-                                                          modifiedSince:[NSDate distantPast] 
-                                                      completionHandler:^{}];
-            }
-            
+            // مسح الكوكيز
             NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
             for (NSHTTPCookie *cookie in [cookieStorage cookies]) {
                 [cookieStorage deleteCookie:cookie];
@@ -85,51 +81,42 @@ static void performFullSessionReset(void) {
 }
 
 // ==========================================
-// حقن الـ IP السكني الحقيقي المولّد في جميع اتصالات الشبكة
+// Hooks الشبكة والموقع
 // ==========================================
 %hook NSURLSession
 
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *data, NSURLResponse *response, NSError *error))completionHandler {
-    NSMutableURLRequest *mutableReq = [request mutableCopy];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Forwarded-For"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"Client-IP"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Real-IP"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"True-Client-IP"];
-    return %orig(mutableReq, completionHandler);
+    if (currentAtlantaResidentialIP) {
+        NSMutableURLRequest *mutableReq = [request mutableCopy];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Forwarded-For"];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"Client-IP"];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Real-IP"];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"True-Client-IP"];
+        return %orig(mutableReq, completionHandler);
+    }
+    return %orig(request, completionHandler);
 }
 
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request {
-    NSMutableURLRequest *mutableReq = [request mutableCopy];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Forwarded-For"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"Client-IP"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Real-IP"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"True-Client-IP"];
-    return %orig(mutableReq);
+    if (currentAtlantaResidentialIP) {
+        NSMutableURLRequest *mutableReq = [request mutableCopy];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Forwarded-For"];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"Client-IP"];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Real-IP"];
+        [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"True-Client-IP"];
+        return %orig(mutableReq);
+    }
+    return %orig(request);
 }
 
 %end
 
-%hook NSURLConnection
-
-+ (NSData *)sendSynchronousRequest:(NSURLRequest *)request returningResponse:(NSURLResponse **)response error:(NSError **)error {
-    NSMutableURLRequest *mutableReq = [request mutableCopy];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Forwarded-For"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"Client-IP"];
-    [mutableReq setValue:currentAtlantaResidentialIP forHTTPHeaderField:@"X-Real-IP"];
-    return %orig(mutableReq, response, error);
-}
-
-%end
-
-// ==========================================
-// تدوير الموقع الجغرافي (CoreLocation - Atlanta)
-// ==========================================
 %hook CLLocationManager
 
 - (void)startUpdatingLocation {
     %orig;
     CLLocation *fakeLocation = [[CLLocation alloc] initWithLatitude:currentLatitude longitude:currentLongitude];
-    if ([self.delegate respondsToSelector:@selector(locationManager:didUpdateLocations:)]) {
+    if (self.delegate && [self.delegate respondsToSelector:@selector(locationManager:didUpdateLocations:)]) {
         [self.delegate locationManager:self didUpdateLocations:@[fakeLocation]];
     }
 }
@@ -151,13 +138,13 @@ static void performFullSessionReset(void) {
 
 %end
 
-// ==========================================
-// خداع معرفات الجهاز (IDFA & UIDevice)
-// ==========================================
 %hook ASIdentifierManager
 
 - (NSUUID *)advertisingIdentifier {
-    return [[NSUUID alloc] initWithUUIDString:currentIDFA];
+    if (currentIDFA) {
+        return [[NSUUID alloc] initWithUUIDString:currentIDFA];
+    }
+    return %orig;
 }
 
 %end
@@ -171,22 +158,23 @@ static void performFullSessionReset(void) {
 %end
 
 // ==========================================
-// مراقبة دورة حياة التطبيق وإعادة الضبط
+// نقطة البداية الآمنة لمنع الانهيار (Constructor)
 // ==========================================
 %ctor {
     @autoreleasepool {
-        NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
-        if (!bundleIdentifier || ![bundleIdentifier isEqualToString:@"com.codebysms"]) {
-            return;
-        }
-        
-        performFullSessionReset();
-        
-        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillEnterForegroundNotification
-                                                          object:nil
-                                                           queue:[NSOperationQueue mainQueue]
-                                                      usingBlock:^(NSNotification *note) {
-            performFullSessionReset();
-        }];
+        // تأجيل التحقق لحين اكتمال إطلاق التطبيق لتجنب الـ Crash
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
+            if (bundleIdentifier && [bundleIdentifier isEqualToString:@"com.codebysms"]) {
+                performFullSessionReset();
+                
+                [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillEnterForegroundNotification
+                                                                  object:nil
+                                                                   queue:[NSOperationQueue mainQueue]
+                                                              usingBlock:^(NSNotification *note) {
+                    performFullSessionReset();
+                }];
+            }
+        });
     }
 }
