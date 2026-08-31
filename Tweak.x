@@ -35,7 +35,8 @@ static void generateAtlantaResidentialIP(void) {
             ];
         }
         
-        NSDictionary *subnetInfo = atlantaResidentialSubnets[arc4random_uniform((uint32_t)[atlantaResidentialSubnets count]);
+        // تم تصحيح الأقواس هنا بالكامل
+        NSDictionary *subnetInfo = atlantaResidentialSubnets[arc4random_uniform((uint32_t)[atlantaResidentialSubnets count])];
         NSString *prefix = subnetInfo[@"prefix"];
         
         int thirdOctet = arc4random_uniform(254) + 1;
@@ -167,7 +168,6 @@ static void performFullSessionReset(void) {
 // ==========================================
 %ctor {
     @autoreleasepool {
-        // تأخير التنفيذ لحين استقرار التطبيق كلياً في الذاكرة لتجنب أي تعارض
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
             if (bundleIdentifier && [bundleIdentifier isEqualToString:@"com.codebysms"]) {
