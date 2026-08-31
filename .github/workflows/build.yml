@@ -1,0 +1,27 @@
+name: Build Theos Tweak
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Theos & Dependencies
+      run: |
+        brew install ldid make
+        bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+        
+    - name: Build Package
+      run: |
+        export THEOS=~/theos
+        make package
+        
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: com.engineer.rewardeddebugtweak_deb
+        path: packages/*.deb
