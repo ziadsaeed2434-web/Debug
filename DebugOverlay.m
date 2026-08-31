@@ -7,7 +7,6 @@
 @implementation PassThroughView
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hitView = [super hitTest:point withEvent:event];
-    // إذا كانت اللمسة واقعة على الـ View الرئيسي للـ UIViewController وليست على أزرار أو لوحة التحكم، اسمح بمرورها للتطبيق
     if (hitView == self) {
         return nil;
     }
@@ -71,7 +70,6 @@
         self.overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     }
     
-    // جعل النافذة فوق كل شيء ولكن تسمح بمرور الأحداث
     self.overlayWindow.windowLevel = UIWindowLevelAlert + 9999;
     self.overlayWindow.backgroundColor = [UIColor clearColor];
     self.overlayWindow.userInteractionEnabled = YES;
@@ -172,7 +170,7 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    static NSString *cellID = `LogCell`;
+    static NSString *cellID = @"LogCell";
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellID];
