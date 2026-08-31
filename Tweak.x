@@ -2,7 +2,6 @@
 #import <UIKit/UIKit.h>
 #import <CoreLocation/CoreLocation.h>
 #import <AdSupport/AdSupport.h>
-#import <WebKit/WebKit.h>
 
 // إحداثيات أتلانتا، جورجيا
 #define ATLANTA_LAT_MIN 33.7489
@@ -36,7 +35,7 @@ static void generateAtlantaResidentialIP(void) {
             ];
         }
         
-        NSDictionary *subnetInfo = atlantaResidentialSubnets[arc4random_uniform((uint32_t)[atlantaResidentialSubnets count])];
+        NSDictionary *subnetInfo = atlantaResidentialSubnets[arc4random_uniform((uint32_t)[atlantaResidentialSubnets count]);
         NSString *prefix = subnetInfo[@"prefix"];
         
         int thirdOctet = arc4random_uniform(254) + 1;
@@ -46,7 +45,7 @@ static void generateAtlantaResidentialIP(void) {
     }
 }
 
-// دالة إعادة الضبط الشامل بشكل آمن
+// دالة إعادة الضبط الآمنة بالكامل
 static void performFullSessionReset(void) {
     @autoreleasepool {
         generateAtlantaResidentialIP();
@@ -57,11 +56,11 @@ static void performFullSessionReset(void) {
         
         NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
         if (bundleID && [bundleID isEqualToString:@"com.codebysms"]) {
-            // مسح الـ NSUserDefaults بحذر
+            // 1. مسح الـ NSUserDefaults بأمان
             [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:bundleID];
             [[NSUserDefaults standardUserDefaults] synchronize];
             
-            // مسح الملفات المؤقتة Caches
+            // 2. مسح ملفات الكاش (Caches) بأمان تام
             NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
             if (cacheDir) {
                 NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -71,7 +70,7 @@ static void performFullSessionReset(void) {
                 }
             }
             
-            // مسح الكوكيز
+            // 3. مسح الكوكيز
             NSHTTPCookieStorage *cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
             for (NSHTTPCookie *cookie in [cookieStorage cookies]) {
                 [cookieStorage deleteCookie:cookie];
@@ -81,7 +80,7 @@ static void performFullSessionReset(void) {
 }
 
 // ==========================================
-// Hooks الشبكة والموقع
+// Hooks الشبكة الآمنة
 // ==========================================
 %hook NSURLSession
 
@@ -111,6 +110,9 @@ static void performFullSessionReset(void) {
 
 %end
 
+// ==========================================
+// Hooks الموقع الجغرافي
+// ==========================================
 %hook CLLocationManager
 
 - (void)startUpdatingLocation {
@@ -138,6 +140,9 @@ static void performFullSessionReset(void) {
 
 %end
 
+// ==========================================
+// Hooks المعرفات
+// ==========================================
 %hook ASIdentifierManager
 
 - (NSUUID *)advertisingIdentifier {
@@ -158,12 +163,12 @@ static void performFullSessionReset(void) {
 %end
 
 // ==========================================
-// نقطة البداية الآمنة لمنع الانهيار (Constructor)
+// نقطة البداية الآمنة جداً
 // ==========================================
 %ctor {
     @autoreleasepool {
-        // تأجيل التحقق لحين اكتمال إطلاق التطبيق لتجنب الـ Crash
-        dispatch_async(dispatch_get_main_queue(), ^{
+        // تأخير التنفيذ لحين استقرار التطبيق كلياً في الذاكرة لتجنب أي تعارض
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
             if (bundleIdentifier && [bundleIdentifier isEqualToString:@"com.codebysms"]) {
                 performFullSessionReset();
