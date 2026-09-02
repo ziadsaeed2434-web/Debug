@@ -1,4 +1,4 @@
-export TARGET = iphone:clang:latest:14.0
+export TARGET = iphone:clang:latest:7.0
 export ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
@@ -6,7 +6,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = TouchRecorderTweak
 
 TouchRecorderTweak_FILES = Tweak.x
-TouchRecorderTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-implicit-enum-enum-cast
+TouchRecorderTweak_CFLAGS = -fobjc-arc -Wno-error -Wno-implicit-function-declaration -Wno-deprecated-declarations
 TouchRecorderTweak_FRAMEWORKS = UIKit Foundation
 TouchRecorderTweak_PRIVATE_FRAMEWORKS = GraphicsServices
 
