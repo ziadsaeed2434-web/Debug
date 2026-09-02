@@ -20,7 +20,7 @@ jobs:
         # 1. استنساخ Theos مع جميع submodules
         git clone --recursive https://github.com/theos/theos.git $HOME/theos
         
-        # 2. في حال فشل التحميل التلقائي، تحديث يدوي
+        # 2. تحديث يدوي للتأكد
         cd $HOME/theos
         git submodule update --init --recursive
         
@@ -33,9 +33,11 @@ jobs:
           curl -L -o $HOME/theos/bin/dm.pl https://raw.githubusercontent.com/theos/theos/master/bin/dm.pl
           chmod +x $HOME/theos/bin/dm.pl
         fi
-        
-        # 5. تثبيت libplist (مطلوب لـ dm.pl)
-        brew install libplist || true
+
+    - name: Install dependencies
+      run: |
+        # تثبيت libplist و ldid (مطلوبان للتوقيع والبناء)
+        brew install libplist ldid || true
 
     - name: Setup Xcode
       run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
