@@ -4,16 +4,57 @@
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <GraphicsServices/GraphicsServices.h>   // for GSEvent API
+#import <GraphicsServices/GraphicsServices.h>
 
 // ============================================================================
-// Persistent Storage Path
+// تعريفات GSEvent المفقودة/المتعارضة – نعيد تعريفها يدوياً
+// ============================================================================
+#ifndef kGSEventTypeTouch
+#define kGSEventTypeTouch 0x0011
+#endif
+
+#ifndef kGSEventSubTypeTouch
+#define kGSEventSubTypeTouch 0
+#endif
+
+// مراحل اللمس (القيم ثابتة في معظم الإصدارات)
+enum {
+    kGSEventTouchPhaseBegan    = 0,
+    kGSEventTouchPhaseMoved    = 1,
+    kGSEventTouchPhaseEnded    = 2,
+    kGSEventTouchPhaseCancelled= 3
+};
+
+// بنية GSEventRecord بالحقول المعروفة (بدون info، نستخدم location مباشرة)
+typedef struct {
+    uint8_t     type;
+    uint8_t     subtype;
+    int16_t     window;
+    int16_t     window2;
+    uint32_t    timestamp;
+    uint32_t    page;
+    uint32_t    port;
+    struct {
+        float x;
+        float y;
+    } location;
+    uint8_t     phase;
+    uint8_t     flags;
+    uint8_t     pathIndex;
+    uint8_t     pathIdentity;
+} GSEventRecord;
+
+// إعلان الدالة الموجودة في GraphicsServices
+extern void GSEventSend(GSEventRecord *event);
+
+// ============================================================================
+// مسار التخزين الدائم
 // ============================================================================
 static NSString * const kMacroStorageDir = @"/var/mobile/Library/Preferences/com.tweak.macros/";
 static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 
 // ============================================================================
-// TXMacroManager – persistence
+// TXMacroManager – إدارة الماكروز
 // ============================================================================
 @interface TXMacroManager : NSObject
 + (instancetype)sharedManager;
@@ -111,7 +152,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================================
-// TXRecorder – captures touch events
+// TXRecorder – تسجيل اللمسات
 // ============================================================================
 @interface TXRecorder : NSObject
 @property (nonatomic, assign, readonly) BOOL isRecording;
@@ -190,7 +231,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================================
-// TXPlayer – plays back macros using GSEventSend with correct struct fields
+// TXPlayer – تشغيل الماكروز باستخدام GSEventSend
 // ============================================================================
 @interface TXPlayer : NSObject
 @property (nonatomic, assign, readonly) BOOL isPlaying;
@@ -261,7 +302,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     NSArray *touches = eventDict[@"touches"];
     if (!touches) return;
     
-    // Get key window – ignore deprecation warning with pragma
+    // الحصول على النافذة الرئيسية (نتجاهل تحذير deprecated)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
@@ -276,21 +317,24 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         GSEventRecord record = {0};
         record.type = kGSEventTypeTouch;
         record.subtype = kGSEventSubTypeTouch;
-        record.window = 0;          // replaced windowNum
-        record.window2 = 0;         // replaced windowNum2
-        // record.page and record.port remain 0
-        record.info.location = CGPointMake(x, y);
-        // record.info contains phase, pathIndex, pathIdentity
-        switch (phase) {
-            case UITouchPhaseBegan:    record.info.phase = kGSEventTouchPhaseBegan; break;
-            case UITouchPhaseMoved:    record.info.phase = kGSEventTouchPhaseMoved; break;
-            case UITouchPhaseEnded:    record.info.phase = kGSEventTouchPhaseEnded; break;
-            default:                   record.info.phase = kGSEventTouchPhaseCancelled; break;
-        }
-        record.info.pathIndex = 0;
-        record.info.pathIdentity = 0;
+        record.window = 0;
+        record.window2 = 0;
         record.timestamp = (uint32_t)(CFAbsoluteTimeGetCurrent() * 1000);
+        record.page = 0;
+        record.port = 0;
+        record.location.x = x;
+        record.location.y = y;
         record.flags = 0;
+        record.pathIndex = 0;
+        record.pathIdentity = 0;
+        
+        // تعيين مرحلة اللمس
+        switch (phase) {
+            case UITouchPhaseBegan:    record.phase = kGSEventTouchPhaseBegan; break;
+            case UITouchPhaseMoved:    record.phase = kGSEventTouchPhaseMoved; break;
+            case UITouchPhaseEnded:    record.phase = kGSEventTouchPhaseEnded; break;
+            default:                   record.phase = kGSEventTouchPhaseCancelled; break;
+        }
         
         GSEventSend(&record);
     }
@@ -305,7 +349,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================================
-// TXFloatingMenu – floating button + menu UI
+// TXFloatingMenu – النافذة العائمة والقائمة
 // ============================================================================
 @interface TXFloatingMenu : NSObject
 + (instancetype)sharedMenu;
@@ -322,14 +366,14 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 - (void)deleteSelectedMacro;
 @end
 
-// Menu view
+// واجهة قائمة التحكم
 @interface TXMenuView : UIView <UITableViewDelegate, UITableViewDataSource>
 @property (nonatomic, weak) TXFloatingMenu *menuController;
 - (void)refreshMacroList;
 @end
 
 // ============================================================================
-// Implementation of TXFloatingMenu
+// تنفيذ TXFloatingMenu
 // ============================================================================
 @implementation TXFloatingMenu {
     UIWindow *_floatingWindow;
@@ -559,7 +603,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================================
-// TXMenuView implementation
+// TXMenuView – القائمة المنبثقة
 // ============================================================================
 @implementation TXMenuView {
     UITableView *_macroTable;
@@ -737,7 +781,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================================
-// Hooking UIWindow to capture touches
+// Hook على UIWindow لتسجيل اللمسات
 // ============================================================================
 static TXRecorder *gRecorder = nil;
 
@@ -751,7 +795,7 @@ static TXRecorder *gRecorder = nil;
 %end
 
 // ============================================================================
-// Constructor
+// المُنشئ – يتم تشغيله عند تحميل الت tweak
 // ============================================================================
 %ctor {
     dispatch_async(dispatch_get_main_queue(), ^{
