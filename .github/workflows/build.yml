@@ -10,24 +10,31 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Install Theos
       run: |
-        git clone --depth=1 https://github.com/theos/theos.git $HOME/theos
+        # 1. استنساخ Theos مع جميع submodules
+        git clone --recursive https://github.com/theos/theos.git $HOME/theos
+        
+        # 2. في حال فشل التحميل التلقائي، تحديث يدوي
+        cd $HOME/theos
+        git submodule update --init --recursive
+        
+        # 3. إعداد البيئة
         echo "THEOS=$HOME/theos" >> $GITHUB_ENV
         echo "$HOME/theos/bin" >> $GITHUB_PATH
         
-        # تثبيت dm.pl (مطلوب لبناء حزمة .deb)
+        # 4. تثبيت dm.pl (أداة بناء الحزمة)
         if [ ! -f "$HOME/theos/bin/dm.pl" ]; then
           curl -L -o $HOME/theos/bin/dm.pl https://raw.githubusercontent.com/theos/theos/master/bin/dm.pl
           chmod +x $HOME/theos/bin/dm.pl
         fi
         
-        # تثبيت libplist
+        # 5. تثبيت libplist (مطلوب لـ dm.pl)
         brew install libplist || true
 
     - name: Setup Xcode
