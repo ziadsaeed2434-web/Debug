@@ -1,36 +1,39 @@
-name: Build Theos Tweak
+name: Build Tweak
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v3
     
-    - name: Install Dependencies
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Theos
       run: |
-        brew install ldid make dpkg
-        
-    - name: Install Theos Manually
+        git clone --depth=1 https://github.com/theos/theos.git $HOME/theos
+        echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+        echo "$HOME/theos/bin" >> $GITHUB_PATH
+
+    - name: Setup SDK
       run: |
-        rm -rf ~/theos
-        git clone --recursive https://github.com/theos/theos.git ~/theos
-        
-    - name: Install iOS SDKs
+        # استخدام SDK الخاص بـ macOS (محاكي iOS) – لكننا سنستخدم Theos's SDK
+        sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
+        # Theos سيتعامل مع SDK تلقائياً
+
+    - name: Build Tweak
       run: |
-        rm -rf ~/theos/sdks
-        git clone https://github.com/theos/sdks.git ~/theos/sdks
-        
-    - name: Build Package
-      run: |
-        export THEOS=~/theos
+        export THEOS=$HOME/theos
         make package
-        
-    - name: Upload Artifact
+
+    - name: Upload Debian Package
       uses: actions/upload-artifact@v4
       with:
-        name: com.engineer.rewardeddebugtweak_deb
+        name: TouchRecorderTweak
         path: packages/*.deb
