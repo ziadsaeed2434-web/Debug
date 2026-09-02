@@ -4,6 +4,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <dlfcn.h>   // for dlopen, dlsym
 
 // ============================================================================
 // تعريفات GSEvent الخاصة بنا (بدون استيراد GraphicsServices)
@@ -18,6 +19,7 @@ enum {
     kGSEventTouchPhaseCancelled= 3
 };
 
+// بنية GSEventRecord (متوافقة مع معظم الإصدارات)
 typedef struct {
     uint8_t     type;
     uint8_t     subtype;
@@ -31,7 +33,9 @@ typedef struct {
     uint8_t     pathIdentity;
 } GSEventRecord;
 
-extern void GSEventSend(GSEventRecord *event);
+// مؤشر للدالة GSEventSend (سيتم تحميلها ديناميكياً)
+typedef void (*GSEventSendFunc)(GSEventRecord *event);
+static GSEventSendFunc GSEventSendPtr = NULL;
 
 // ============================================================================
 // مسار التخزين الدائم
@@ -217,7 +221,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================================
-// TXPlayer – تشغيل الماكروز
+// TXPlayer – تشغيل الماكروز باستخدام GSEventSend المحمل ديناميكياً
 // ============================================================================
 @interface TXPlayer : NSObject
 @property (nonatomic, assign, readonly) BOOL isPlaying;
@@ -285,6 +289,12 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 }
 
 - (void)executeEvent:(NSDictionary *)eventDict {
+    // التأكد من تحميل الدالة
+    if (!GSEventSendPtr) {
+        NSLog(@"GSEventSend not loaded!");
+        return;
+    }
+    
     NSArray *touches = eventDict[@"touches"];
     if (!touches) return;
     
@@ -318,7 +328,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
             default:                   record.phase = kGSEventTouchPhaseCancelled; break;
         }
         
-        GSEventSend(&record);
+        GSEventSendPtr(&record);
     }
 }
 
@@ -776,9 +786,20 @@ static TXRecorder *gRecorder = nil;
 %end
 
 // ============================================================================
-// المُنشئ
+// المُنشئ – تحميل GSEventSend ديناميكياً
 // ============================================================================
 %ctor {
+    // تحميل الدالة من الإطار
+    void *handle = dlopen("/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices", RTLD_LAZY);
+    if (handle) {
+        GSEventSendPtr = (GSEventSendFunc)dlsym(handle, "GSEventSend");
+        if (!GSEventSendPtr) {
+            NSLog(@"Failed to find GSEventSend symbol");
+        }
+    } else {
+        NSLog(@"Failed to load GraphicsServices framework");
+    }
+    
     dispatch_async(dispatch_get_main_queue(), ^{
         TXRecorder *recorder = [[TXRecorder alloc] init];
         gRecorder = recorder;
