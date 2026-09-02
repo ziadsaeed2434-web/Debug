@@ -104,7 +104,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================
-// TXRecorder (نفس السابق)
+// TXRecorder
 // ============================================================
 @interface TXRecorder : NSObject
 @property (nonatomic, assign, readonly) BOOL isRecording;
@@ -153,7 +153,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================
-// TXPlayer (نفس السابق مع إضافة فحص GSEventSend)
+// TXPlayer
 // ============================================================
 @interface TXPlayer : NSObject
 @property (nonatomic, assign, readonly) BOOL isPlaying;
@@ -239,40 +239,8 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================
-// TXFloatingMenu و TXMenuView (مع إضافة HitTest)
+// TXFloatingMenu (الإصدار الذي يضاف إلى keyWindow مباشرة)
 // ============================================================
-// نضيف UIView مخصصة لتمرير اللمس
-@interface TouchPassThroughView : UIView
-@property (nonatomic, weak) UIButton *floatingButton;
-@property (nonatomic, weak) UIView *menuView;
-@end
-
-@implementation TouchPassThroughView
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    // التحقق إذا كانت النقطة فوق الزر أو القائمة
-    if (_floatingButton && !_floatingButton.hidden && 
-        CGRectContainsPoint(_floatingButton.frame, point)) {
-        return _floatingButton;
-    }
-    if (_menuView && !_menuView.hidden && 
-        CGRectContainsPoint(_menuView.frame, point)) {
-        // نجد الـ subview داخل القائمة التي تريد اللمس (مثل الأزرار والجدول)
-        for (UIView *subview in _menuView.subviews) {
-            CGPoint subPoint = [self convertPoint:point toView:subview];
-            if ([subview pointInside:subPoint withEvent:event]) {
-                return subview;
-            }
-        }
-        return _menuView; // إذا كانت النقطة فوق القائمة لكن ليست على عنصر محدد، نمررها للقائمة نفسها
-    }
-    // وإلا نمرر اللمس للتطبيق الأصلي
-    return nil;
-}
-@end
-
-// ... (باقي الكود لـ TXFloatingMenu و TXMenuView مع التعديلات)
-// الآن نضيف الـ root view المخصص بدلاً من الـ UIViewController العادي
-
 @interface TXFloatingMenu : NSObject
 + (instancetype)sharedMenu;
 @property (nonatomic, strong) TXRecorder *recorder;
@@ -288,23 +256,26 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 - (void)deleteSelectedMacro;
 @end
 
+// TXMenuView (تعريف)
 @interface TXMenuView : UIView <UITableViewDelegate, UITableViewDataSource>
 @property (nonatomic, weak) TXFloatingMenu *menuController;
 - (void)refreshMacroList;
 @end
 
 @implementation TXFloatingMenu {
-    UIWindow *_floatingWindow;
     UIButton *_floatingButton;
     TXMenuView *_menuView;
     BOOL _menuVisible;
+    UIWindow *_targetWindow; // نافذة التطبيق التي نضيف عليها العناصر
 }
+
 + (instancetype)sharedMenu {
     static TXFloatingMenu *menu = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{ menu = [[self alloc] init]; });
     return menu;
 }
+
 - (instancetype)init {
     if ((self = [super init])) {
         _recorder = [[TXRecorder alloc] init];
@@ -313,25 +284,28 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         _selectedMacroName = nil;
         _autoRepeatEnabled = (_macroManager.autoRepeatMacroName != nil);
         if (_autoRepeatEnabled) _selectedMacroName = _macroManager.autoRepeatMacroName;
-        [self setupFloatingWindow];
+        
+        // سنضيف العناصر عندما تتوفر النافذة الرئيسية
+        [self performSelector:@selector(setupUI) withObject:nil afterDelay:0.5];
         [self setupNotifications];
     }
     return self;
 }
-- (void)setupFloatingWindow {
-    UIWindow *window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    window.windowLevel = UIWindowLevelAlert + 1;
-    window.backgroundColor = [UIColor clearColor];
-    window.userInteractionEnabled = YES;
-    window.hidden = NO;
+
+- (void)setupUI {
+    // الحصول على النافذة الرئيسية للتطبيق
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    UIWindow *mainWindow = [UIApplication sharedApplication].keyWindow;
+    #pragma clang diagnostic pop
+    if (!mainWindow) {
+        // إذا لم تكن جاهزة، حاول مرة أخرى بعد 0.5 ثانية
+        [self performSelector:@selector(setupUI) withObject:nil afterDelay:0.5];
+        return;
+    }
+    _targetWindow = mainWindow;
     
-    // استخدام الـ View المخصص بدلاً من UIViewController
-    TouchPassThroughView *rootView = [[TouchPassThroughView alloc] initWithFrame:window.bounds];
-    rootView.backgroundColor = [UIColor clearColor];
-    rootView.userInteractionEnabled = YES;
-    window.rootViewController = [[UIViewController alloc] init];
-    window.rootViewController.view = rootView;
-    
+    // إنشاء الزر العائم
     UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     button.frame = CGRectMake(20, 100, 60, 60);
     button.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:1.0 alpha:0.9];
@@ -345,44 +319,87 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [button addGestureRecognizer:pan];
-    [rootView addSubview:button];
+    [mainWindow addSubview:button];
     _floatingButton = button;
-    rootView.floatingButton = button; // ربطه للـ hitTest
     
+    // إنشاء القائمة (مخفية في البداية)
     TXMenuView *menu = [[TXMenuView alloc] initWithFrame:CGRectZero];
     menu.menuController = self;
     menu.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.9];
     menu.layer.cornerRadius = 10;
     menu.layer.masksToBounds = YES;
     menu.hidden = YES;
-    [rootView addSubview:menu];
+    [mainWindow addSubview:menu];
     _menuView = menu;
-    rootView.menuView = menu;
     
-    _floatingWindow = window;
+    // ضبط ترتيب العناصر (الزر فوق القائمة)
+    [mainWindow bringSubviewToFront:button];
+    [mainWindow bringSubviewToFront:menu];
 }
-// ... باقي التوابع (applicationDidBecomeActive, show/hide menu, handlePan, actions) كما هي دون تغيير
-// تأكد من أن جميع التوابع موجودة كما في الكود السابق، لكنني سأضعها مختصرة للاختصار.
 
 - (void)setupNotifications {
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applicationDidBecomeActive:) name:UIApplicationDidBecomeActiveNotification object:nil];
 }
+
 - (void)applicationDidBecomeActive:(NSNotification *)note {
+    // التأكد من وجود الزر في النافذة (قد يتم إعادة إنشاء النوافذ)
+    if (!_floatingButton.superview) {
+        [self setupUI];
+    }
     if (_autoRepeatEnabled && _selectedMacroName.length > 0) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [self->_player playMacroWithName:self->_selectedMacroName];
         });
     }
 }
+
 - (void)floatingButtonTapped:(UIButton *)sender {
     if (_menuVisible) [self hideMenu]; else [self showMenu];
 }
+
 - (void)showMenu {
-    // ... كما في السابق
+    _menuView.hidden = NO;
+    _menuView.frame = CGRectMake(0, 0, 280, 320);
+    CGRect buttonFrame = _floatingButton.frame;
+    CGPoint anchor = CGPointMake(CGRectGetMaxX(buttonFrame), CGRectGetMidY(buttonFrame));
+    CGRect screenBounds = [UIScreen mainScreen].bounds;
+    CGFloat menuWidth = _menuView.frame.size.width;
+    CGFloat menuHeight = _menuView.frame.size.height;
+    CGFloat x = anchor.x + 10;
+    CGFloat y = anchor.y - menuHeight/2;
+    if (x + menuWidth > screenBounds.size.width) x = anchor.x - menuWidth - 10;
+    if (y < 0) y = 10;
+    if (y + menuHeight > screenBounds.size.height) y = screenBounds.size.height - menuHeight - 10;
+    _menuView.frame = CGRectMake(x, y, menuWidth, menuHeight);
+    [_menuView refreshMacroList];
+    _menuVisible = YES;
+    [_targetWindow bringSubviewToFront:_menuView];
 }
-- (void)hideMenu { _menuView.hidden = YES; _menuVisible = NO; }
-- (void)handlePan:(UIPanGestureRecognizer *)gesture { /* كما في السابق */ }
+
+- (void)hideMenu {
+    _menuView.hidden = YES;
+    _menuVisible = NO;
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)gesture {
+    UIButton *button = (UIButton *)gesture.view;
+    CGPoint translation = [gesture translationInView:_targetWindow];
+    CGRect newFrame = button.frame;
+    newFrame.origin.x += translation.x;
+    newFrame.origin.y += translation.y;
+    CGRect bounds = _targetWindow.bounds;
+    if (newFrame.origin.x < 0) newFrame.origin.x = 0;
+    if (newFrame.origin.y < 20) newFrame.origin.y = 20;
+    if (newFrame.origin.x + newFrame.size.width > bounds.size.width)
+        newFrame.origin.x = bounds.size.width - newFrame.size.width;
+    if (newFrame.origin.y + newFrame.size.height > bounds.size.height)
+        newFrame.origin.y = bounds.size.height - newFrame.size.height - 20;
+    button.frame = newFrame;
+    [gesture setTranslation:CGPointZero inView:_targetWindow];
+}
+
 - (void)startRecording { if (!_recorder.isRecording) [_recorder startRecording]; }
+
 - (void)stopRecordingAndSave {
     if (!_recorder.isRecording) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Save Macro" message:@"Enter a name" preferredStyle:UIAlertControllerStyleAlert];
@@ -408,7 +425,9 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     #pragma clang diagnostic pop
     [root presentViewController:alert animated:YES completion:nil];
 }
+
 - (void)selectMacro:(NSString *)name { _selectedMacroName = name; }
+
 - (void)playSelectedMacro {
     if (_selectedMacroName.length == 0) {
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"No Macro" message:@"Please select a macro first" preferredStyle:UIAlertControllerStyleAlert];
@@ -423,11 +442,13 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     if (_player.isPlaying) [_player stop];
     [_player playMacroWithName:_selectedMacroName];
 }
+
 - (void)toggleAutoRepeat:(BOOL)enabled {
     _autoRepeatEnabled = enabled;
     if (enabled && _selectedMacroName.length > 0) [_macroManager setAutoRepeatMacroName:_selectedMacroName];
     else [_macroManager setAutoRepeatMacroName:nil];
 }
+
 - (void)deleteSelectedMacro {
     if (_selectedMacroName.length == 0) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Delete Macro" message:[NSString stringWithFormat:@"Delete '%@'?", _selectedMacroName] preferredStyle:UIAlertControllerStyleAlert];
@@ -450,7 +471,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================
-// TXMenuView (كما هو دون تغيير)
+// TXMenuView (نفس السابق)
 // ============================================================
 @implementation TXMenuView {
     UITableView *_macroTable;
@@ -468,7 +489,80 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     return self;
 }
 - (void)setupSubviews {
-    // ... كما في الكود السابق (لم يتغير)
+    CGFloat y = 10, margin = 10, width = 260, buttonHeight = 36, spacing = 8;
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(margin, y, width - 2*margin, 30)];
+    title.text = @"Macro Controller";
+    title.textColor = [UIColor whiteColor];
+    title.font = [UIFont boldSystemFontOfSize:18];
+    title.textAlignment = NSTextAlignmentCenter;
+    [self addSubview:title];
+    y += 35;
+    
+    UIButton *record = [UIButton buttonWithType:UIButtonTypeSystem];
+    record.frame = CGRectMake(margin, y, (width - 3*margin)/2, buttonHeight);
+    [record setTitle:@"▶️ Record" forState:UIControlStateNormal];
+    record.backgroundColor = [UIColor colorWithRed:0.2 green:0.8 blue:0.2 alpha:1.0];
+    [record setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    record.layer.cornerRadius = 5;
+    [record addTarget:self action:@selector(recordAction:) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:record];
+    
+    UIButton *stop = [UIButton buttonWithType:UIButtonTypeSystem];
+    stop.frame = CGRectMake(margin + (width - 3*margin)/2 + margin, y, (width - 3*margin)/2, buttonHeight);
+    [stop setTitle:@"⏹ Save" forState:UIControlStateNormal];
+    stop.backgroundColor = [UIColor colorWithRed:0.9 green:0.3 blue:0.1 alpha:1.0];
+    [stop setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    stop.layer.cornerRadius = 5;
+    [stop addTarget:self action:@selector(stopSaveAction:) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:stop];
+    y += buttonHeight + spacing;
+    
+    UITableView *table = [[UITableView alloc] initWithFrame:CGRectMake(margin, y, width - 2*margin, 120) style:UITableViewStylePlain];
+    table.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1.0];
+    table.delegate = self;
+    table.dataSource = self;
+    table.layer.cornerRadius = 5;
+    table.separatorColor = [UIColor grayColor];
+    [self addSubview:table];
+    _macroTable = table;
+    y += 120 + spacing;
+    
+    UIButton *play = [UIButton buttonWithType:UIButtonTypeSystem];
+    play.frame = CGRectMake(margin, y, (width - 3*margin)/2, buttonHeight);
+    [play setTitle:@"▶️ Play" forState:UIControlStateNormal];
+    play.backgroundColor = [UIColor colorWithRed:0.2 green:0.4 blue:0.9 alpha:1.0];
+    [play setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    play.layer.cornerRadius = 5;
+    [play addTarget:self action:@selector(playAction:) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:play];
+    
+    UIButton *del = [UIButton buttonWithType:UIButtonTypeSystem];
+    del.frame = CGRectMake(margin + (width - 3*margin)/2 + margin, y, (width - 3*margin)/2, buttonHeight);
+    [del setTitle:@"🗑 Delete" forState:UIControlStateNormal];
+    del.backgroundColor = [UIColor colorWithRed:0.8 green:0.2 blue:0.2 alpha:1.0];
+    [del setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    del.layer.cornerRadius = 5;
+    [del addTarget:self action:@selector(deleteAction:) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:del];
+    y += buttonHeight + spacing;
+    
+    UILabel *autoLabel = [[UILabel alloc] initWithFrame:CGRectMake(margin, y, 140, 30)];
+    autoLabel.text = @"Auto‑repeat on launch";
+    autoLabel.textColor = [UIColor whiteColor];
+    autoLabel.font = [UIFont systemFontOfSize:14];
+    [self addSubview:autoLabel];
+    
+    UISwitch *autoSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(width - margin - 51, y, 51, 30)];
+    [autoSwitch addTarget:self action:@selector(autoRepeatToggled:) forControlEvents:UIControlEventValueChanged];
+    [self addSubview:autoSwitch];
+    _autoRepeatSwitch = autoSwitch;
+    
+    TXFloatingMenu *menu = self.menuController;
+    if (menu) {
+        _autoRepeatSwitch.on = menu.autoRepeatEnabled;
+        _selectedName = menu.selectedMacroName;
+    }
+    [self refreshMacroList];
 }
 - (void)refreshMacroList {
     _macroNames = [[TXMacroManager sharedManager] macroNames];
