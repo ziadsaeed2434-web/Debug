@@ -8,8 +8,9 @@ TWEAK_NAME = TouchRecorderTweak
 TouchRecorderTweak_FILES = Tweak.x
 TouchRecorderTweak_CFLAGS = -fobjc-arc -Wno-error -Wno-deprecated-declarations
 TouchRecorderTweak_FRAMEWORKS = UIKit Foundation CoreGraphics
-TouchRecorderTweak_PRIVATE_FRAMEWORKS = GraphicsServices
-TouchRecorderTweak_LDFLAGS = -Wl,-undefined,dynamic_lookup
+
+# لم نعد بحاجة إلى GraphicsServices على الإطلاق
+# TouchRecorderTweak_PRIVATE_FRAMEWORKS = 
 
 INSTALL_TARGET_PROCESSES = all
 
