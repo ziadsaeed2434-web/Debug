@@ -1,5 +1,4 @@
-// Tweak.x
-// الإصدار النهائي - يعمل التسجيل والحفظ بكل تأكيد
+// Tweak.x – الإصدار النهائي مع مسار تخزين مباشر وتحديث تلقائي للقائمة
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
@@ -36,17 +35,16 @@ typedef void (*GSEventSendFunc)(GSEventRecord *);
 static GSEventSendFunc GSEventSendPtr = NULL;
 
 // ============================================================
-// مسار التخزين الدائم
+// مسار التخزين – نستخدم `/var/mobile/Library/Preferences/` مباشرة
 // ============================================================
-static NSString * const kMacroStorageDir = @"/var/mobile/Library/Preferences/com.tweak.macros/";
+static NSString * const kMacroStorageDir = @"/var/mobile/Library/Preferences/";
 static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 
 // ============================================================
-// TXMacroManager - إدارة الماكروز
+// TXMacroManager – مع تحميل فوري للقائمة
 // ============================================================
 @interface TXMacroManager : NSObject
 + (instancetype)sharedManager;
-- (NSString *)persistentDirectory;
 - (NSArray<NSString *> *)macroNames;
 - (NSDictionary *)loadMacroWithName:(NSString *)name;
 - (void)saveMacro:(NSDictionary *)macro withName:(NSString *)name;
@@ -68,28 +66,33 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 
 - (instancetype)init {
     if ((self = [super init])) {
+        // نتأكد من وجود المجلد – لكنه موجود دائماً
         NSFileManager *fm = [NSFileManager defaultManager];
-        NSString *dir = [self persistentDirectory];
-        if (![fm fileExistsAtPath:dir]) {
-            [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
-            NSLog(@"[Tweak] ✅ Created macro directory: %@", dir);
-        } else {
-            NSLog(@"[Tweak] ✅ Macro directory exists: %@", dir);
+        if (![fm fileExistsAtPath:kMacroStorageDir]) {
+            [fm createDirectoryAtPath:kMacroStorageDir withIntermediateDirectories:YES attributes:nil error:nil];
         }
-        NSString *prefPath = [dir stringByAppendingPathComponent:@"autoRepeat.plist"];
+        // تحميل تفضيل التكرار التلقائي
+        NSString *prefPath = [kMacroStorageDir stringByAppendingPathComponent:@"autoRepeat.plist"];
         _autoRepeatPreference = [NSMutableDictionary dictionaryWithContentsOfFile:prefPath] ?: [NSMutableDictionary dictionary];
     }
     return self;
 }
 
-- (NSString *)persistentDirectory { return kMacroStorageDir; }
-
 - (NSArray<NSString *> *)macroNames {
-    NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[self persistentDirectory] error:nil];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSError *error = nil;
+    NSArray *files = [fm contentsOfDirectoryAtPath:kMacroStorageDir error:&error];
+    if (error) {
+        NSLog(@"[Tweak] ❌ Error reading directory: %@", error);
+        return @[];
+    }
     NSMutableArray *names = [NSMutableArray array];
     for (NSString *file in files) {
-        if ([file hasSuffix:@".plist"] && ![file isEqualToString:@"autoRepeat.plist"]) {
-            [names addObject:[file stringByDeletingPathExtension]];
+        // نبحث عن الملفات التي تبدأ بـ "macro_" وتنتهي بـ ".plist"
+        if ([file hasPrefix:@"macro_"] && [file hasSuffix:@".plist"]) {
+            NSString *name = [file stringByDeletingPathExtension];
+            name = [name substringFromIndex:6]; // إزالة "macro_"
+            [names addObject:name];
         }
     }
     NSLog(@"[Tweak] 📋 Loaded macro names: %@", names);
@@ -97,20 +100,27 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 }
 
 - (NSDictionary *)loadMacroWithName:(NSString *)name {
-    NSString *path = [[self persistentDirectory] stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"plist"]];
+    NSString *fileName = [NSString stringWithFormat:@"macro_%@.plist", name];
+    NSString *path = [kMacroStorageDir stringByAppendingPathComponent:fileName];
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
-    NSLog(@"[Tweak] 📂 Loaded macro '%@' with %lu events", name, (unsigned long)[dict[@"events"] count]);
+    if (dict) {
+        NSLog(@"[Tweak] 📂 Loaded macro '%@' with %lu events", name, (unsigned long)[dict[@"events"] count]);
+    } else {
+        NSLog(@"[Tweak] ❌ Failed to load macro '%@'", name);
+    }
     return dict;
 }
 
 - (void)saveMacro:(NSDictionary *)macro withName:(NSString *)name {
-    NSString *path = [[self persistentDirectory] stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"plist"]];
+    NSString *fileName = [NSString stringWithFormat:@"macro_%@.plist", name];
+    NSString *path = [kMacroStorageDir stringByAppendingPathComponent:fileName];
     BOOL success = [macro writeToFile:path atomically:YES];
     NSLog(@"[Tweak] 💾 Macro saved: %@ (success: %d, events: %lu)", name, success, (unsigned long)[macro[@"events"] count]);
 }
 
 - (void)deleteMacroWithName:(NSString *)name {
-    NSString *path = [[self persistentDirectory] stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"plist"]];
+    NSString *fileName = [NSString stringWithFormat:@"macro_%@.plist", name];
+    NSString *path = [kMacroStorageDir stringByAppendingPathComponent:fileName];
     [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
     NSLog(@"[Tweak] 🗑️ Macro deleted: %@", name);
 }
@@ -122,13 +132,13 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 - (void)setAutoRepeatMacroName:(NSString *)name {
     if (name) _autoRepeatPreference[kAutoRepeatKey] = name;
     else [_autoRepeatPreference removeObjectForKey:kAutoRepeatKey];
-    NSString *prefPath = [[self persistentDirectory] stringByAppendingPathComponent:@"autoRepeat.plist"];
+    NSString *prefPath = [kMacroStorageDir stringByAppendingPathComponent:@"autoRepeat.plist"];
     [_autoRepeatPreference writeToFile:prefPath atomically:YES];
 }
 @end
 
 // ============================================================
-// TXRecorder - تسجيل اللمسات
+// TXRecorder – تسجيل اللمسات (نفس الكود السابق)
 // ============================================================
 @interface TXRecorder : NSObject
 @property (nonatomic, assign, readonly) BOOL isRecording;
@@ -144,7 +154,6 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     CFAbsoluteTime _startTime;
     BOOL _isRecording;
 }
-
 - (instancetype)init {
     if ((self = [super init])) {
         _events = [NSMutableArray array];
@@ -153,27 +162,22 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     }
     return self;
 }
-
 - (BOOL)isRecording { return _isRecording; }
-
 - (void)startRecording {
     _isRecording = YES;
     [_events removeAllObjects];
     _startTime = CFAbsoluteTimeGetCurrent();
     NSLog(@"[Tweak] 🔴 Recording STARTED");
 }
-
 - (void)stopRecording {
     _isRecording = NO;
     NSLog(@"[Tweak] ⏹️ Recording STOPPED (events: %lu)", (unsigned long)_events.count);
 }
-
 - (void)cancelRecording {
     _isRecording = NO;
     [_events removeAllObjects];
     NSLog(@"[Tweak] ❌ Recording cancelled");
 }
-
 - (NSDictionary *)recordedMacro {
     if (_events.count == 0) {
         NSLog(@"[Tweak] ⚠️ No events recorded!");
@@ -183,12 +187,10 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     NSLog(@"[Tweak] 📦 Macro built with %lu events", (unsigned long)_events.count);
     return macro;
 }
-
 - (void)captureTouchEvent:(UIEvent *)event {
     if (!_isRecording) return;
     NSSet *touches = [event allTouches];
     if (!touches.count) return;
-    
     NSTimeInterval timestamp = CFAbsoluteTimeGetCurrent() - _startTime;
     NSMutableArray *touchData = [NSMutableArray array];
     for (UITouch *touch in touches) {
@@ -196,12 +198,12 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         [touchData addObject:@{ @"x": @(loc.x), @"y": @(loc.y), @"phase": @(touch.phase) }];
     }
     [_events addObject:@{ @"timestamp": @(timestamp), @"touches": touchData }];
-    NSLog(@"[Tweak] 👆 Captured touch at (%.1f, %.1f) phase: %ld", [touchData[0][@"x"] floatValue], [touchData[0][@"y"] floatValue], (long)[touchData[0][@"phase"] integerValue]);
+    NSLog(@"[Tweak] 👆 Captured touch at (%.1f, %.1f)", [touchData[0][@"x"] floatValue], [touchData[0][@"y"] floatValue]);
 }
 @end
 
 // ============================================================
-// TXPlayer - تشغيل الماكروز
+// TXPlayer – تشغيل الماكروز (نفس الكود السابق)
 // ============================================================
 @interface TXPlayer : NSObject
 @property (nonatomic, assign, readonly) BOOL isPlaying;
@@ -217,7 +219,6 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     BOOL _isPlaying;
     CFAbsoluteTime _playStartTime;
 }
-
 - (instancetype)init {
     if ((self = [super init])) {
         _playbackQueue = dispatch_queue_create("com.tweak.playback", DISPATCH_QUEUE_SERIAL);
@@ -225,9 +226,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     }
     return self;
 }
-
 - (BOOL)isPlaying { return _isPlaying; }
-
 - (void)playMacro:(NSDictionary *)macro {
     [self stop];
     NSArray *events = macro[@"events"];
@@ -242,12 +241,10 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     NSLog(@"[Tweak] ▶️ Playing macro with %lu events", (unsigned long)_events.count);
     [self scheduleNextEvent];
 }
-
 - (void)playMacroWithName:(NSString *)name {
     NSDictionary *macro = [[TXMacroManager sharedManager] loadMacroWithName:name];
     if (macro) [self playMacro:macro];
 }
-
 - (void)scheduleNextEvent {
     if (_eventIndex >= _events.count) { [self stop]; return; }
     NSDictionary *event = _events[_eventIndex];
@@ -261,7 +258,6 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         [self scheduleNextEvent];
     });
 }
-
 - (void)executeEvent:(NSDictionary *)eventDict {
     if (!GSEventSendPtr) {
         NSLog(@"[Tweak] ❌ GSEventSend not loaded!");
@@ -269,13 +265,11 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     }
     NSArray *touches = eventDict[@"touches"];
     if (!touches) return;
-    
     #pragma clang diagnostic push
     #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
     #pragma clang diagnostic pop
     if (!keyWindow) return;
-    
     for (NSDictionary *touchDict in touches) {
         CGFloat x = [touchDict[@"x"] floatValue];
         CGFloat y = [touchDict[@"y"] floatValue];
@@ -297,7 +291,6 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         NSLog(@"[Tweak] 📤 Sent simulated touch at (%.1f, %.1f)", x, y);
     }
 }
-
 - (void)stop {
     _isPlaying = NO;
     _events = nil;
@@ -307,7 +300,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================
-// TXFloatingMenu - النافذة العائمة
+// TXFloatingMenu + TXMenuView (مع تحديث فوري للقائمة)
 // ============================================================
 @interface TXFloatingMenu : NSObject
 + (instancetype)sharedMenu;
@@ -323,6 +316,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 - (void)toggleAutoRepeat:(BOOL)enabled;
 - (void)deleteSelectedMacro;
 - (void)setupUI;
+- (void)refreshMenuList; // لإعادة تحميل القائمة من الخارج
 @end
 
 @interface TXMenuView : UIView <UITableViewDelegate, UITableViewDataSource>
@@ -352,9 +346,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         _selectedMacroName = nil;
         _autoRepeatEnabled = (_macroManager.autoRepeatMacroName != nil);
         if (_autoRepeatEnabled) _selectedMacroName = _macroManager.autoRepeatMacroName;
-        
         [self setupNotifications];
-        // تأخير لضمان وجود النافذة
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [self setupUI];
         });
@@ -398,14 +390,11 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         return;
     }
     _targetWindow = mainWindow;
-    
     if (_floatingButton && _floatingButton.superview) {
         [_targetWindow bringSubviewToFront:_floatingButton];
         if (_menuView) [_targetWindow bringSubviewToFront:_menuView];
         return;
     }
-    
-    // إنشاء الزر
     UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     button.frame = CGRectMake(20, 100, 60, 60);
     button.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:1.0 alpha:0.9];
@@ -416,13 +405,11 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     [button setTitle:@"⚙️" forState:UIControlStateNormal];
     button.titleLabel.font = [UIFont systemFontOfSize:28];
     [button addTarget:self action:@selector(floatingButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-    
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [button addGestureRecognizer:pan];
     [mainWindow addSubview:button];
     _floatingButton = button;
     
-    // إنشاء القائمة
     TXMenuView *menu = [[TXMenuView alloc] initWithFrame:CGRectZero];
     menu.menuController = self;
     menu.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.9];
@@ -431,10 +418,8 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     menu.hidden = YES;
     [mainWindow addSubview:menu];
     _menuView = menu;
-    
     [mainWindow bringSubviewToFront:button];
     [mainWindow bringSubviewToFront:menu];
-    
     NSLog(@"[Tweak] ✅ UI setup complete");
 }
 
@@ -469,6 +454,10 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     NSLog(@"[Tweak] 📋 Menu hidden");
 }
 
+- (void)refreshMenuList {
+    if (_menuView) [_menuView refreshMacroList];
+}
+
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
     if (!_floatingButton || !_targetWindow) return;
     UIButton *button = (UIButton *)gesture.view;
@@ -491,6 +480,8 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     if (!_recorder.isRecording) {
         [_recorder startRecording];
         NSLog(@"[Tweak] 🔴 Record button pressed");
+        // عرض تنبيه بسيط يوضح أن التسجيل بدأ
+        [self showTemporaryAlert:@"🔴 Recording started" withMessage:@"Tap anywhere to record touches"];
     } else {
         NSLog(@"[Tweak] ⚠️ Already recording");
     }
@@ -516,9 +507,13 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         if (macro) {
             [self->_macroManager saveMacro:macro withName:name];
             self->_selectedMacroName = name;
+            // 🔥 تحديث فوري للقائمة
             [self->_menuView refreshMacroList];
+            // عرض رسالة نجاح
+            [self showTemporaryAlert:@"✅ Macro Saved!" withMessage:[NSString stringWithFormat:@"'%@' with %lu events", name, (unsigned long)[macro[@"events"] count]]];
             NSLog(@"[Tweak] ✅ Macro saved: %@", name);
         } else {
+            [self showTemporaryAlert:@"❌ No events!" withMessage:@"Please record touches first"];
             NSLog(@"[Tweak] ❌ No events to save!");
         }
         [self->_recorder cancelRecording];
@@ -534,6 +529,25 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     if (root) [root presentViewController:alert animated:YES completion:nil];
 }
 
+// دالة مساعدة لعرض تنبيه قصير (يختفي تلقائياً بعد 2 ثانية)
+- (void)showTemporaryAlert:(NSString *)title withMessage:(NSString *)message {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    UIViewController *root = [UIApplication sharedApplication].keyWindow.rootViewController;
+    #pragma clang diagnostic pop
+    if (root) {
+        [root presentViewController:alert animated:YES completion:^{
+            // إخفاء التنبيه بعد 2 ثانية
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [alert dismissViewControllerAnimated:YES completion:nil];
+            });
+        }];
+    }
+}
+
 - (void)selectMacro:(NSString *)name {
     _selectedMacroName = name;
     NSLog(@"[Tweak] 📌 Selected macro: %@", name);
@@ -541,15 +555,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 
 - (void)playSelectedMacro {
     if (_selectedMacroName.length == 0) {
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"No Macro"
-                                                                       message:@"Please select a macro first"
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        #pragma clang diagnostic push
-        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        UIViewController *root = [UIApplication sharedApplication].keyWindow.rootViewController;
-        #pragma clang diagnostic pop
-        if (root) [root presentViewController:alert animated:YES completion:nil];
+        [self showTemporaryAlert:@"No Macro" withMessage:@"Please select a macro first"];
         return;
     }
     if (_player.isPlaying) [_player stop];
@@ -579,6 +585,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
             self->_autoRepeatEnabled = NO;
             [self->_macroManager setAutoRepeatMacroName:nil];
         }
+        [self showTemporaryAlert:@"🗑️ Deleted" withMessage:@"Macro removed"];
         NSLog(@"[Tweak] 🗑️ Macro deleted");
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -591,7 +598,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================
-// TXMenuView - القائمة
+// TXMenuView – القائمة (نفس الكود مع تحسينات)
 // ============================================================
 @implementation TXMenuView {
     UITableView *_macroTable;
@@ -700,6 +707,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
             [_macroTable selectRowAtIndexPath:[NSIndexPath indexPathForRow:idx inSection:0] animated:NO scrollPosition:UITableViewScrollPositionNone];
         }
     }
+    NSLog(@"[Tweak] 🔄 Macro list refreshed: %lu items", (unsigned long)_macroNames.count);
 }
 
 #pragma mark - UITableViewDataSource
@@ -725,6 +733,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     NSString *name = _macroNames[indexPath.row];
     _selectedName = name;
     [self.menuController selectMacro:name];
+    NSLog(@"[Tweak] 👆 Selected macro from list: %@", name);
 }
 
 #pragma mark - Actions
@@ -736,7 +745,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================
-// 🪝 HOOKS: التقاط اللمسات من UIApplication و UIWindow (مزدوج)
+// HOOKS: تسجيل اللمسات من UIApplication و UIWindow
 // ============================================================
 static TXRecorder *gRecorder = nil;
 
@@ -762,7 +771,6 @@ static TXRecorder *gRecorder = nil;
 // Constructor
 // ============================================================
 %ctor {
-    // تحميل GSEventSend
     void *handle = dlopen("/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices", RTLD_LAZY);
     if (handle) {
         GSEventSendPtr = (GSEventSendFunc)dlsym(handle, "GSEventSend");
@@ -774,7 +782,6 @@ static TXRecorder *gRecorder = nil;
     } else {
         NSLog(@"[Tweak] ❌ Failed to load GraphicsServices framework");
     }
-    
     dispatch_async(dispatch_get_main_queue(), ^{
         gRecorder = [[TXRecorder alloc] init];
         [TXFloatingMenu sharedMenu];
