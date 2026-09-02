@@ -20,12 +20,18 @@ jobs:
         git clone --depth=1 https://github.com/theos/theos.git $HOME/theos
         echo "THEOS=$HOME/theos" >> $GITHUB_ENV
         echo "$HOME/theos/bin" >> $GITHUB_PATH
+        
+        # تثبيت dm.pl (مطلوب لبناء حزمة .deb)
+        if [ ! -f "$HOME/theos/bin/dm.pl" ]; then
+          curl -L -o $HOME/theos/bin/dm.pl https://raw.githubusercontent.com/theos/theos/master/bin/dm.pl
+          chmod +x $HOME/theos/bin/dm.pl
+        fi
+        
+        # تثبيت libplist
+        brew install libplist || true
 
-    - name: Setup SDK
-      run: |
-        # استخدام SDK الخاص بـ macOS (محاكي iOS) – لكننا سنستخدم Theos's SDK
-        sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
-        # Theos سيتعامل مع SDK تلقائياً
+    - name: Setup Xcode
+      run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
 
     - name: Build Tweak
       run: |
