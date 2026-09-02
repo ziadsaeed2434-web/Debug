@@ -6,9 +6,11 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = TouchRecorderTweak
 
 TouchRecorderTweak_FILES = Tweak.x
-TouchRecorderTweak_CFLAGS = -fobjc-arc -Wno-error -Wno-implicit-function-declaration -Wno-deprecated-declarations
-TouchRecorderTweak_FRAMEWORKS = UIKit Foundation
-TouchRecorderTweak_PRIVATE_FRAMEWORKS = GraphicsServices
+TouchRecorderTweak_CFLAGS = -fobjc-arc -Wno-error -Wno-deprecated-declarations
+TouchRecorderTweak_FRAMEWORKS = UIKit Foundation CoreGraphics
+
+# لم نعد بحاجة إلى GraphicsServices لأننا عرفنا كل شيء يدوياً
+# TouchRecorderTweak_PRIVATE_FRAMEWORKS = GraphicsServices
 
 INSTALL_TARGET_PROCESSES = all
 
