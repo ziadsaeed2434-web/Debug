@@ -4,40 +4,7 @@
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <GraphicsServices/GraphicsServices.h>   // for GSEvent simulation
-
-// ============================================================================
-// Private GSEvent structures
-// ============================================================================
-typedef enum {
-    kGSEventTypeTouch = 0x0011,
-} GSEventType;
-
-typedef enum {
-    kGSEventSubtypeTouch = 0x0000,
-} GSEventSubtype;
-
-typedef enum {
-    kGSEventTouchPhaseBegan    = 0,
-    kGSEventTouchPhaseMoved    = 1,
-    kGSEventTouchPhaseEnded    = 2,
-    kGSEventTouchPhaseCancelled= 3,
-} GSEventTouchPhase;
-
-typedef struct {
-    uint8_t        type;
-    uint8_t        subtype;
-    int16_t        windowNum;
-    int16_t        windowNum2;
-    CGPoint        point;
-    uint32_t       timestamp;
-    uint8_t        phase;
-    uint8_t        flags;
-    uint8_t        pathIndex;
-    uint8_t        pathIdentity;
-} GSEventRecord;
-
-extern void GSEventSend(GSEventRecord *event);
+#import <GraphicsServices/GraphicsServices.h>   // for GSEvent API
 
 // ============================================================================
 // Persistent Storage Path
@@ -223,7 +190,7 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 @end
 
 // ============================================================================
-// TXPlayer – plays back macros
+// TXPlayer – plays back macros using GSEventSend with correct struct fields
 // ============================================================================
 @interface TXPlayer : NSObject
 @property (nonatomic, assign, readonly) BOOL isPlaying;
@@ -293,7 +260,12 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
 - (void)executeEvent:(NSDictionary *)eventDict {
     NSArray *touches = eventDict[@"touches"];
     if (!touches) return;
+    
+    // Get key window – ignore deprecation warning with pragma
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
+#pragma clang diagnostic pop
     if (!keyWindow) return;
     
     for (NSDictionary *touchDict in touches) {
@@ -303,21 +275,23 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         
         GSEventRecord record = {0};
         record.type = kGSEventTypeTouch;
-        record.subtype = kGSEventSubtypeTouch;
-        record.windowNum = 0;
-        record.windowNum2 = 0;
-        record.point = CGPointMake(x, y);
+        record.subtype = kGSEventSubTypeTouch;
+        record.window = 0;          // replaced windowNum
+        record.window2 = 0;         // replaced windowNum2
+        // record.page and record.port remain 0
+        record.info.location = CGPointMake(x, y);
+        // record.info contains phase, pathIndex, pathIdentity
+        switch (phase) {
+            case UITouchPhaseBegan:    record.info.phase = kGSEventTouchPhaseBegan; break;
+            case UITouchPhaseMoved:    record.info.phase = kGSEventTouchPhaseMoved; break;
+            case UITouchPhaseEnded:    record.info.phase = kGSEventTouchPhaseEnded; break;
+            default:                   record.info.phase = kGSEventTouchPhaseCancelled; break;
+        }
+        record.info.pathIndex = 0;
+        record.info.pathIdentity = 0;
         record.timestamp = (uint32_t)(CFAbsoluteTimeGetCurrent() * 1000);
         record.flags = 0;
-        record.pathIndex = 0;
-        record.pathIdentity = 0;
         
-        switch (phase) {
-            case UITouchPhaseBegan:    record.phase = kGSEventTouchPhaseBegan; break;
-            case UITouchPhaseMoved:    record.phase = kGSEventTouchPhaseMoved; break;
-            case UITouchPhaseEnded:    record.phase = kGSEventTouchPhaseEnded; break;
-            default:                   record.phase = kGSEventTouchPhaseCancelled; break;
-        }
         GSEventSend(&record);
     }
 }
@@ -521,7 +495,10 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
         [self->_recorder cancelRecording];
     }]];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     UIViewController *root = [UIApplication sharedApplication].keyWindow.rootViewController;
+#pragma clang diagnostic pop
     [root presentViewController:alert animated:YES completion:nil];
 }
 
@@ -535,7 +512,10 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
                                                                        message:@"Please select a macro first"
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         UIViewController *root = [UIApplication sharedApplication].keyWindow.rootViewController;
+#pragma clang diagnostic pop
         [root presentViewController:alert animated:YES completion:nil];
         return;
     }
@@ -569,7 +549,10 @@ static NSString * const kAutoRepeatKey = @"AutoRepeatMacroName";
         }
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     UIViewController *root = [UIApplication sharedApplication].keyWindow.rootViewController;
+#pragma clang diagnostic pop
     [root presentViewController:alert animated:YES completion:nil];
 }
 
@@ -774,6 +757,6 @@ static TXRecorder *gRecorder = nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         TXRecorder *recorder = [[TXRecorder alloc] init];
         gRecorder = recorder;
-        [TXFloatingMenu sharedMenu]; // instantiate
+        [TXFloatingMenu sharedMenu];
     });
 }
