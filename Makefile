@@ -1,12 +1,15 @@
-TARGET := iphone:clang:latest:14.0
-ARCHS = arm64 arm64e
+export TARGET = iphone:clang:latest:14.0
+export ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = CodeBySMSHook
+TWEAK_NAME = TouchRecorderTweak
 
-CodeBySMSHook_FILES = Tweak.x
-CodeBySMSHook_FRAMEWORKS = Foundation UIKit CoreLocation CoreGraphics WebKit AdSupport
-CodeBySMSHook_CFLAGS = -fobjc-arc
+TouchRecorderTweak_FILES = Tweak.x
+TouchRecorderTweak_CFLAGS = -fobjc-arc
+TouchRecorderTweak_FRAMEWORKS = UIKit Foundation
+TouchRecorderTweak_PRIVATE_FRAMEWORKS = GraphicsServices
+
+INSTALL_TARGET_PROCESSES = all
 
 include $(THEOS_MAKE_PATH)/tweak.mk
