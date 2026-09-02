@@ -1,9 +1,9 @@
-Package: com.codebysms.hook
-Name: CodeBySMS Global Hook
-Depends: mobilesubstrate, firmware (>= 14.0)
+Package: com.tweak.touchrecorder
+Name: Touch Recorder & Macro Player
 Version: 1.0.0
-Architecture: arm64
-Maintainer: Expert iOS Reverse Engineer
-Author: Expert iOS Reverse Engineer
+Architecture: iphoneos-arm
+Description: Advanced touch recorder and macro player with a floating menu. Records touches, plays them back, and supports auto-repeat on app launch.
+Maintainer: Your Name <your@email.com>
+Author: Your Name <your@email.com>
 Section: Tweaks
-Description: Advanced global network, location rotation, and session isolation tweak for com.codebysms.
+Depends: mobilesubstrate
