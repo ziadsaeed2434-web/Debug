@@ -1,9 +1,9 @@
-Package: com.tweak.touchrecorder
-Name: Touch Recorder & Macro Player
+Package: com.majed.autoclicker
+Name: AutoClicker Tweak
+Depends: mobilesubstrate
 Version: 1.0.0
 Architecture: iphoneos-arm
-Description: Advanced touch recorder and macro player with a floating menu. Records touches, plays them back, and supports auto-repeat on app launch.
-Maintainer: Your Name <your@email.com>
-Author: Your Name <your@email.com>
+Description: أداة ضغط تلقائي بشاشة عائمة، الفاصل الزمني قابل للتحكم من 1 إلى 10 ثوانٍ.
+Maintainer: Majed
+Author: Majed
 Section: Tweaks
-Depends: mobilesubstrate
