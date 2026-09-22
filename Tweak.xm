@@ -1,7 +1,5 @@
 // ============================================================
-// AutoClickerTweak - Tweak.xm
-// يعتمد على نفس منطق الكود الأصلي (ZSFakeTouch + Madness)
-// مع إضافة: التحكم بالفاصل الزمني من 1 إلى 10 ثوانٍ
+// AutoClickerTweak - Tweak.xm  (FINAL FIXED VERSION)
 // ============================================================
 
 #import <UIKit/UIKit.h>
@@ -10,145 +8,121 @@
 #import <objc/message.h>
 #import <substrate.h>
 #import <mach/mach_time.h>
-#import <ImageIO/ImageIO.h>
 
-// ---------- IOKit (لمحاكاة اللمس الحقيقي) ----------
+// IOKit — التعريفات الرسمية من Theos
 #import <IOKit/hid/IOHIDEvent.h>
 #import <IOKit/hid/IOHIDEventTypes.h>
+#import <IOKit/hid/IOHIDEventData.h>
 
-// دوال خاصة لإنشاء أحداث HID
-extern IOHIDEventRef IOHIDEventCreateDigitizerEvent(
-    CFAllocatorRef allocator,
-    AbsoluteTime timeStamp,
-    IOHIDDigitizerTransducerType type,
-    uint32_t index,
-    uint32_t identity,
-    uint32_t eventMask,
-    uint32_t buttonMask,
-    IOHIDDigitizerEventOptions options,
-    IOHIDFloat x, IOHIDFloat y, IOHIDFloat z,
-    IOHIDFloat tipPressure, IOHIDFloat barrelPressure,
-    Boolean range, Boolean touch, IOOptionBits options2);
+// ============================================================
+// UITouch Category
+// ============================================================
 
-extern IOHIDEventRef IOHIDEventCreateDigitizerFingerEventWithQuality(
-    CFAllocatorRef allocator,
-    AbsoluteTime timeStamp,
-    uint32_t index,
-    uint32_t identity,
-    IOHIDDigitizerTransducerType type,
-    IOHIDFloat x, IOHIDFloat y, IOHIDFloat z,
-    IOHIDFloat tipPressure, IOHIDFloat twist,
-    Boolean range, Boolean touch, Boolean options,
-    IOHIDFloat quality, IOHIDFloat density, IOHIDFloat irregularity);
-
-extern void IOHIDEventAppendEvent(IOHIDEventRef parent, IOHIDEventRef child);
-extern void IOHIDEventSetIntegerValue(IOHIDEventRef event, int field, CFIndex value);
-
-// ثوابت
-#ifndef kIOHIDEventFieldIsBuiltIn
-#define kIOHIDEventFieldIsBuiltIn 0xB0019
-#endif
-
-#pragma mark - ============================================================
-#pragma mark UITouch (Fake) - محاكاة اللمس
-#pragma mark ============================================================
-
-@interface UITouch (FakeTouch)
-- (instancetype)fake_initAtPoint:(CGPoint)point inWindow:(UIWindow *)window;
-- (void)fake_setPhaseAndUpdateTimestamp:(UITouchPhase)phase;
-- (void)fake_setLocationInWindow:(CGPoint)point;
+@interface UITouch (FakeTouchPrivate)
+- (void)setWindow:(UIWindow *)window;
+- (void)setView:(UIView *)view;
+- (void)setPhase:(UITouchPhase)phase;
+- (void)setTimestamp:(NSTimeInterval)timestamp;
+- (void)_setLocationInWindow:(CGPoint)location resetPrevious:(BOOL)reset;
+- (void)_setIsFirstTouchForView:(BOOL)flag;
+- (void)_setIsTapToClick:(BOOL)flag;
+- (void)setGestureView:(UIView *)view;
 @end
 
-@implementation UITouch (FakeTouch)
-
-- (instancetype)fake_initAtPoint:(CGPoint)point inWindow:(UIWindow *)window {
-    self = [self init];
-    if (!self) return nil;
-
-    [self setWindow:window];
-    [self _setLocationInWindow:point resetPrevious:YES];
-
-    UIView *hitView = [window hitTest:point withEvent:nil];
-    [self setView:hitView];
-    [self setPhase:UITouchPhaseBegan];
-
-    if ([self respondsToSelector:NSSelectorFromString(@"_setIsFirstTouchForView:")]) {
-        ((void (*)(id, SEL, BOOL))objc_msgSend)(self,
-            NSSelectorFromString(@"_setIsFirstTouchForView:"), YES);
-    }
-    if ([self respondsToSelector:NSSelectorFromString(@"_setIsTapToClick:")]) {
-        ((void (*)(id, SEL, BOOL))objc_msgSend)(self,
-            NSSelectorFromString(@"_setIsTapToClick:"), NO);
-    }
-
-    [self setTimestamp:[[NSProcessInfo processInfo] systemUptime]];
-
-    if ([self respondsToSelector:NSSelectorFromString(@"setGestureView:")]) {
-        ((void (*)(id, SEL, id))objc_msgSend)(self,
-            NSSelectorFromString(@"setGestureView:"), hitView);
-    }
-
-    // إنشاء حدث HID (مطلوب لـ iOS 9+)
-    if ([NSProcessInfo instancesRespondToSelector:
-            NSSelectorFromString(@"isOperatingSystemAtLeastVersion:")]) {
-        // نضبط HID event لاحقاً في eventWithTouches
-    }
-
-    return self;
-}
-
-- (void)fake_setPhaseAndUpdateTimestamp:(UITouchPhase)phase {
-    [self setTimestamp:[[NSProcessInfo processInfo] systemUptime]];
-    [self setPhase:phase];
-}
-
-- (void)fake_setLocationInWindow:(CGPoint)point {
-    [self setTimestamp:[[NSProcessInfo processInfo] systemUptime]];
-    [self _setLocationInWindow:point resetPrevious:NO];
-}
-
+@interface UIApplication (FakeTouchPrivate)
+- (UIEvent *)_touchesEvent;
 @end
 
-#pragma mark - ============================================================
-#pragma mark UIEvent (Fake) - بناء الأحداث
-#pragma mark ============================================================
+@interface UIEvent (FakeTouchPrivate)
+- (void)_clearTouches;
+- (void)_addTouch:(UITouch *)touch forDelayedDelivery:(BOOL)delayed;
+- (void)_setHIDEvent:(IOHIDEventRef)event;
+@end
 
-static IOHIDEventRef AC_IOHIDEventWithTouches(NSArray *touches) {
+@implementation UITouch (FakeTouchPrivate)
+@end
+@implementation UIApplication (FakeTouchPrivate)
+@end
+@implementation UIEvent (FakeTouchPrivate)
+@end
+
+// ============================================================
+// Helper: safe objc_msgSend casts
+// ============================================================
+
+static inline void UITouch_SetWindow(id self, SEL _cmd, id win) {
+    ((void (*)(id, SEL, id))objc_msgSend)(self, _cmd, win);
+}
+static inline void UITouch_SetView(id self, SEL _cmd, id v) {
+    ((void (*)(id, SEL, id))objc_msgSend)(self, _cmd, v);
+}
+static inline void UITouch_SetPhase(id self, SEL _cmd, UITouchPhase p) {
+    ((void (*)(id, SEL, NSInteger))objc_msgSend)(self, _cmd, (NSInteger)p);
+}
+static inline void UITouch_SetTimestamp(id self, SEL _cmd, NSTimeInterval t) {
+    ((void (*)(id, SEL, double))objc_msgSend)(self, _cmd, t);
+}
+static inline void UITouch_SetLocation(id self, SEL _cmd, CGPoint p, BOOL reset) {
+    ((void (*)(id, SEL, CGPoint, BOOL))objc_msgSend)(self, _cmd, p, reset);
+}
+static inline void UITouch_SetBool(id self, SEL _cmd, BOOL flag) {
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(self, _cmd, flag);
+}
+
+// ============================================================
+// Build IOHID event from touches (correct signatures)
+// ============================================================
+
+static IOHIDEventRef AC_CreateHIDEventWithTouches(NSArray *touches) {
     uint64_t abTime = mach_absolute_time();
-    AbsoluteTime timeStamp = *(AbsoluteTime *)&abTime;
+    AbsoluteTime timeStamp;
+    timeStamp.hi = (UInt32)(abTime >> 32);
+    timeStamp.lo = (UInt32)(abTime);
 
+    // 1) Hand / digitizer container event
     IOHIDEventRef handEvent = IOHIDEventCreateDigitizerEvent(
         kCFAllocatorDefault,
         timeStamp,
-        0, 0, 0, 0, 0, 0,           // type, index, identity, masks, options
-        0, 0, 0, 0, 0, 0, 0, 0);    // coordinates/pressure
+        kIOHIDDigitizerTransducerTypeHand,
+        0,          // index
+        0,          // identity
+        0,          // eventMask
+        0,          // buttonMask
+        0,          // options
+        0, 0, 0,    // x, y, z
+        0, 0,       // tipPressure, barrelPressure
+        false,      // range
+        false,      // touch
+        0);         // options2
+
+    if (!handEvent) return NULL;
+
     IOHIDEventSetIntegerValue(handEvent, kIOHIDEventFieldIsBuiltIn, 1);
 
+    // 2) Finger events
     for (NSUInteger i = 0; i < touches.count; i++) {
         UITouch *touch = touches[i];
         UITouchPhase phase = touch.phase;
-
-        uint32_t fingerMask = 3; // default
-        if (phase == UITouchPhaseBegan)   fingerMask = 4;
-        else if (phase == UITouchPhaseMoved) fingerMask = 3;
-        else if (phase == UITouchPhaseEnded) fingerMask = 3;
-
         CGPoint loc = [touch locationInView:touch.window];
 
         IOHIDEventRef fingerEvent = IOHIDEventCreateDigitizerFingerEventWithQuality(
             kCFAllocatorDefault,
             timeStamp,
-            (uint32_t)(i + 1),       // index
-            2,                        // identity
-            0,                        // type
+            (uint32_t)(i + 1),          // index
+            2,                           // identity
+            0,                           // eventMask
             (IOHIDFloat)loc.x,
             (IOHIDFloat)loc.y,
-            0, 0, 0,
-            0,
-            (phase != UITouchPhaseEnded), // touch
+            0,                           // z
+            0,                           // tipPressure
+            0,                           // twist
+            1.0, 1.0,                    // minorRadius, majorRadius
+            1.0, 1.0, 0.0,               // quality, density, irregularity
+            false,                       // range
             (phase != UITouchPhaseEnded),
-            0,
-            1.0, 1.0, 0);
+            0);                          // options
+
+        if (!fingerEvent) continue;
 
         IOHIDEventSetIntegerValue(fingerEvent, kIOHIDEventFieldIsBuiltIn, 1);
         IOHIDEventAppendEvent(handEvent, fingerEvent);
@@ -157,24 +131,63 @@ static IOHIDEventRef AC_IOHIDEventWithTouches(NSArray *touches) {
     return handEvent;
 }
 
-@interface UIEvent (FakeTouch)
-- (void)fake_setEventWithTouches:(NSArray *)touches;
+// ============================================================
+// UITouch factory
+// ============================================================
+
+@interface UITouch (ACFactory)
+- (instancetype)ac_initAtPoint:(CGPoint)point inWindow:(UIWindow *)window;
+- (void)ac_setPhase:(UITouchPhase)phase;
+- (void)ac_setLocationInWindow:(CGPoint)point;
 @end
 
-@implementation UIEvent (FakeTouch)
+@implementation UITouch (ACFactory)
 
-- (void)fake_setEventWithTouches:(NSArray *)touches {
-    IOHIDEventRef hidEvent = AC_IOHIDEventWithTouches(touches);
-    ((void (*)(id, SEL, IOHIDEventRef))objc_msgSend)(self,
-        NSSelectorFromString(@"_setHIDEvent:"), hidEvent);
-    CFRelease(hidEvent);
+- (instancetype)ac_initAtPoint:(CGPoint)point inWindow:(UIWindow *)window {
+    id touch = ((id (*)(id, SEL))objc_msgSend)(self, @selector(init));
+    if (!touch) return nil;
+
+    UITouch_SetWindow(touch, @selector(setWindow:), window);
+    UITouch_SetLocation(touch, @selector(_setLocationInWindow:resetPrevious:), point, YES);
+
+    UIView *hitView = [window hitTest:point withEvent:nil];
+    UITouch_SetView(touch, @selector(setView:), hitView);
+    UITouch_SetPhase(touch, @selector(setPhase:), UITouchPhaseBegan);
+
+    if ([touch respondsToSelector:@selector(_setIsFirstTouchForView:)]) {
+        UITouch_SetBool(touch, @selector(_setIsFirstTouchForView:), YES);
+    }
+    if ([touch respondsToSelector:@selector(_setIsTapToClick:)]) {
+        UITouch_SetBool(touch, @selector(_setIsTapToClick:), NO);
+    }
+
+    UITouch_SetTimestamp(touch, @selector(setTimestamp:),
+                         [[NSProcessInfo processInfo] systemUptime]);
+
+    if ([touch respondsToSelector:@selector(setGestureView:)]) {
+        UITouch_SetView(touch, @selector(setGestureView:), hitView);
+    }
+
+    return touch;
+}
+
+- (void)ac_setPhase:(UITouchPhase)phase {
+    UITouch_SetTimestamp(self, @selector(setTimestamp:),
+                         [[NSProcessInfo processInfo] systemUptime]);
+    UITouch_SetPhase(self, @selector(setPhase:), phase);
+}
+
+- (void)ac_setLocationInWindow:(CGPoint)point {
+    UITouch_SetTimestamp(self, @selector(setTimestamp:),
+                         [[NSProcessInfo processInfo] systemUptime]);
+    UITouch_SetLocation(self, @selector(_setLocationInWindow:resetPrevious:), point, NO);
 }
 
 @end
 
-#pragma mark - ============================================================
-#pragma mark ZSFakeTouch - الفئة الأساسية لمحاكاة اللمس
-#pragma mark ============================================================
+// ============================================================
+// ZSFakeTouch
+// ============================================================
 
 static UITouch *gZSTouch = nil;
 
@@ -198,45 +211,55 @@ static UITouch *gZSTouch = nil;
 }
 
 + (UIEvent *)eventWithTouches:(NSArray *)touches {
-    UIEvent *event = [[UIApplication sharedApplication] _touchesEvent];
-    [event _clearTouches];
-    [event fake_setEventWithTouches:touches];
+    UIApplication *app = [UIApplication sharedApplication];
+    UIEvent *event = ((UIEvent *(*)(id, SEL))objc_msgSend)(app, @selector(_touchesEvent));
+    ((void (*)(id, SEL))objc_msgSend)(event, @selector(_clearTouches));
+
+    IOHIDEventRef hid = AC_CreateHIDEventWithTouches(touches);
+    if (hid) {
+        ((void (*)(id, SEL, IOHIDEventRef))objc_msgSend)(event,
+            @selector(_setHIDEvent:), hid);
+        CFRelease(hid);
+    }
+
     for (UITouch *t in touches) {
-        [event _addTouch:t forDelayedDelivery:NO];
+        ((void (*)(id, SEL, id, BOOL))objc_msgSend)(event,
+            @selector(_addTouch:forDelayedDelivery:), t, NO);
     }
     return event;
 }
 
 + (void)beginTouchWithPoint:(CGPoint)point {
     UIWindow *window = [self lastWindow];
+    if (!window) return;
 
-    UITouch *touch = [[UITouch alloc] fake_initAtPoint:point inWindow:window];
+    UITouch *touch = [[UITouch alloc] ac_initAtPoint:point inWindow:window];
     gZSTouch = touch;
-    [touch fake_setPhaseAndUpdateTimestamp:UITouchPhaseBegan];
+    [touch ac_setPhase:UITouchPhaseBegan];
 
     UIEvent *event = [self eventWithTouches:@[touch]];
     [[UIApplication sharedApplication] sendEvent:event];
 
     if (touch.phase == UITouchPhaseBegan ||
         touch.phase == UITouchPhaseMoved) {
-        [touch fake_setPhaseAndUpdateTimestamp:UITouchPhaseStationary];
+        [touch ac_setPhase:UITouchPhaseStationary];
     }
 }
 
 + (void)moveTouchWithPoint:(CGPoint)point {
     if (!gZSTouch) return;
-    [gZSTouch fake_setLocationInWindow:point];
-    [gZSTouch fake_setPhaseAndUpdateTimestamp:UITouchPhaseMoved];
+    [gZSTouch ac_setLocationInWindow:point];
+    [gZSTouch ac_setPhase:UITouchPhaseMoved];
 
     UIEvent *event = [self eventWithTouches:@[gZSTouch]];
     [[UIApplication sharedApplication] sendEvent:event];
-    [gZSTouch fake_setPhaseAndUpdateTimestamp:UITouchPhaseStationary];
+    [gZSTouch ac_setPhase:UITouchPhaseStationary];
 }
 
 + (void)endTouchWithPoint:(CGPoint)point {
     if (!gZSTouch) return;
-    [gZSTouch fake_setLocationInWindow:point];
-    [gZSTouch fake_setPhaseAndUpdateTimestamp:UITouchPhaseEnded];
+    [gZSTouch ac_setLocationInWindow:point];
+    [gZSTouch ac_setPhase:UITouchPhaseEnded];
 
     UIEvent *event = [self eventWithTouches:@[gZSTouch]];
     [[UIApplication sharedApplication] sendEvent:event];
@@ -245,15 +268,15 @@ static UITouch *gZSTouch = nil;
 
 @end
 
-#pragma mark - ============================================================
-#pragma mark AutoClicker Engine
-#pragma mark ============================================================
+// ============================================================
+// AutoClicker Engine
+// ============================================================
 
 @interface AutoClickerEngine : NSObject
 @property (nonatomic, assign) CGPoint tapPoint;
 @property (nonatomic, assign) BOOL running;
 @property (nonatomic, strong) NSTimer *timer;
-@property (nonatomic, assign) NSTimeInterval interval;  // 1.0 - 10.0 sec
+@property (nonatomic, assign) NSTimeInterval interval;
 @end
 
 @implementation AutoClickerEngine
@@ -265,7 +288,6 @@ static UITouch *gZSTouch = nil;
         inst = [[AutoClickerEngine alloc] init];
         inst.tapPoint = CGPointMake([UIScreen mainScreen].bounds.size.width / 2.0,
                                     [UIScreen mainScreen].bounds.size.height / 2.0);
-        // القيمة الافتراضية = 1.5 ثانية (نفس القيمة الأصلية في الكود المستخرج)
         inst.interval = 1.5;
         inst.running = NO;
     });
@@ -312,9 +334,9 @@ static UITouch *gZSTouch = nil;
 
 @end
 
-#pragma mark - ============================================================
-#pragma mark Floating UI Panel
-#pragma mark ============================================================
+// ============================================================
+// Floating Panel
+// ============================================================
 
 @interface ACPanel : UIView
 @property (nonatomic, strong) UIButton *startStopBtn;
@@ -322,7 +344,6 @@ static UITouch *gZSTouch = nil;
 @property (nonatomic, strong) UILabel *intervalLbl;
 @property (nonatomic, strong) UILabel *statusLbl;
 @property (nonatomic, strong) UILabel *pointLbl;
-@property (nonatomic, assign) BOOL selectingPoint;
 @end
 
 @implementation ACPanel
@@ -334,24 +355,19 @@ static UITouch *gZSTouch = nil;
         self.layer.cornerRadius = 14;
         self.layer.borderColor = [UIColor yellowColor].CGColor;
         self.layer.borderWidth = 1.5;
-        self.layer.shadowColor = [UIColor blackColor].CGColor;
-        self.layer.shadowOpacity = 0.7;
-        self.layer.shadowRadius = 6;
         [self buildUI];
     }
     return self;
 }
 
 - (void)buildUI {
-    // العنوان
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(8, 6, 204, 22)];
-    title.text = @"⚡ Auto Clicker Pro";
+    title.text = @"⚡ Auto Clicker";
     title.textColor = [UIColor yellowColor];
     title.font = [UIFont boldSystemFontOfSize:15];
     title.textAlignment = NSTextAlignmentCenter;
     [self addSubview:title];
 
-    // زر إغلاق
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(188, 4, 26, 22);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
@@ -359,7 +375,6 @@ static UITouch *gZSTouch = nil;
     [closeBtn addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:closeBtn];
 
-    // زر START/STOP
     self.startStopBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     self.startStopBtn.frame = CGRectMake(10, 34, 200, 34);
     [self.startStopBtn setTitle:@"▶ START" forState:UIControlStateNormal];
@@ -370,15 +385,13 @@ static UITouch *gZSTouch = nil;
     [self.startStopBtn addTarget:self action:@selector(toggle) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:self.startStopBtn];
 
-    // ملصق الفاصل
     self.intervalLbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 72, 200, 18)];
-    self.intervalLbl.text = @"Interval: 1.5s";
+    self.intervalLbl.text = [NSString stringWithFormat:@"Interval: %.1fs", [AutoClickerEngine shared].interval];
     self.intervalLbl.textColor = [UIColor whiteColor];
     self.intervalLbl.font = [UIFont boldSystemFontOfSize:12];
     self.intervalLbl.textAlignment = NSTextAlignmentCenter;
     [self addSubview:self.intervalLbl];
 
-    // سلايدر الفاصل من 1 إلى 10 ثوان
     self.slider = [[UISlider alloc] initWithFrame:CGRectMake(10, 92, 200, 26)];
     self.slider.minimumValue = 1.0;
     self.slider.maximumValue = 10.0;
@@ -389,7 +402,6 @@ static UITouch *gZSTouch = nil;
     [self.slider addTarget:self action:@selector(sliderChanged:) forControlEvents:UIControlEventValueChanged];
     [self addSubview:self.slider];
 
-    // ملصق النقطة الحالية
     self.pointLbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 118, 200, 16)];
     CGPoint p = [AutoClickerEngine shared].tapPoint;
     self.pointLbl.text = [NSString stringWithFormat:@"Point: %.0f, %.0f", p.x, p.y];
@@ -398,7 +410,6 @@ static UITouch *gZSTouch = nil;
     self.pointLbl.textAlignment = NSTextAlignmentCenter;
     [self addSubview:self.pointLbl];
 
-    // زر اختيار النقطة
     UIButton *pickBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     pickBtn.frame = CGRectMake(10, 138, 200, 26);
     [pickBtn setTitle:@"📍 Pick Tap Point" forState:UIControlStateNormal];
@@ -409,7 +420,6 @@ static UITouch *gZSTouch = nil;
     [pickBtn addTarget:self action:@selector(pickPoint) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:pickBtn];
 
-    // ملصق الحالة
     self.statusLbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 168, 200, 16)];
     self.statusLbl.text = @"Status: Idle";
     self.statusLbl.textColor = [UIColor cyanColor];
@@ -418,17 +428,12 @@ static UITouch *gZSTouch = nil;
     [self addSubview:self.statusLbl];
 }
 
-#pragma mark - Actions
-
 - (void)sliderChanged:(UISlider *)s {
-    NSTimeInterval v = s.value;
-    // تدوير لأقرب 0.1
-    v = round(v * 10.0) / 10.0;
+    NSTimeInterval v = round(s.value * 10.0) / 10.0;
     self.intervalLbl.text = [NSString stringWithFormat:@"Interval: %.1fs", v];
     [AutoClickerEngine shared].interval = v;
-
     if ([AutoClickerEngine shared].running) {
-        self.statusLbl.text = [NSString stringWithFormat:@"Status: Running (%.1fs)", v];
+        self.statusLbl.text = [NSString stringWithFormat:@"Running (%.1fs)", v];
     }
 }
 
@@ -444,7 +449,7 @@ static UITouch *gZSTouch = nil;
         [eng start];
         [self.startStopBtn setTitle:@"⏸ STOP" forState:UIControlStateNormal];
         self.startStopBtn.backgroundColor = [UIColor redColor];
-        self.statusLbl.text = [NSString stringWithFormat:@"Status: Running (%.1fs)", eng.interval];
+        self.statusLbl.text = [NSString stringWithFormat:@"Running (%.1fs)", eng.interval];
         self.statusLbl.textColor = [UIColor greenColor];
     }
 }
@@ -455,15 +460,12 @@ static UITouch *gZSTouch = nil;
 }
 
 - (void)pickPoint {
-    self.selectingPoint = YES;
-    self.statusLbl.text = @"Tap anywhere on screen...";
+    self.statusLbl.text = @"Tap anywhere...";
     self.statusLbl.textColor = [UIColor orangeColor];
 
     UIWindow *keyWin = [[UIApplication sharedApplication] keyWindow];
-
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
                                                                           action:@selector(handlePick:)];
-    tap.numberOfTapsRequired = 1;
     [keyWin addGestureRecognizer:tap];
 }
 
@@ -473,11 +475,8 @@ static UITouch *gZSTouch = nil;
     self.pointLbl.text = [NSString stringWithFormat:@"Point: %.0f, %.0f", p.x, p.y];
     self.statusLbl.text = @"Point selected ✔";
     self.statusLbl.textColor = [UIColor greenColor];
-    self.selectingPoint = NO;
     [g.view removeGestureRecognizer:g];
 }
-
-#pragma mark - Drag Panel
 
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     UITouch *t = [touches anyObject];
@@ -488,7 +487,6 @@ static UITouch *gZSTouch = nil;
 }
 
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    // حفظ الموقع
     [[NSUserDefaults standardUserDefaults] setObject:NSStringFromCGPoint(self.center)
                                               forKey:@"ACPanelCenter"];
     [[NSUserDefaults standardUserDefaults] synchronize];
@@ -496,9 +494,9 @@ static UITouch *gZSTouch = nil;
 
 @end
 
-#pragma mark - ============================================================
-#pragma mark Tweak Hooks
-#pragma mark ============================================================
+// ============================================================
+// Hooks
+// ============================================================
 
 static ACPanel *gPanel = nil;
 static UIButton *gFloatBtn = nil;
@@ -513,18 +511,10 @@ static void AC_ShowPanel(void) {
             if (saved) gPanel.center = CGPointFromString(saved);
 
             UIWindow *win = [[UIApplication sharedApplication] keyWindow];
-            if (!win) {
-                win = [[[UIApplication sharedApplication] windows] firstObject];
-            }
+            if (!win) win = [[[UIApplication sharedApplication] windows] firstObject];
             [win addSubview:gPanel];
         }
         gPanel.hidden = NO;
-    });
-}
-
-static void AC_HidePanel(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (gPanel) gPanel.hidden = YES;
     });
 }
 
@@ -532,7 +522,6 @@ static void AC_HidePanel(void) {
 
 - (void)makeKeyAndVisible {
     %orig;
-
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
@@ -548,17 +537,12 @@ static void AC_HidePanel(void) {
             btn.titleLabel.font = [UIFont systemFontOfSize:24];
             btn.layer.borderColor = [UIColor whiteColor].CGColor;
             btn.layer.borderWidth = 1.5;
-            btn.layer.shadowColor = [UIColor blackColor].CGColor;
-            btn.layer.shadowOpacity = 0.6;
-            btn.layer.shadowRadius = 5;
 
-            [btn addTarget:self
-                    action:@selector(ac_togglePanel)
+            [btn addTarget:self action:@selector(ac_togglePanel)
           forControlEvents:UIControlEventTouchUpInside];
 
             UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
-                                            initWithTarget:self
-                                                    action:@selector(ac_panBtn:)];
+                                            initWithTarget:self action:@selector(ac_panBtn:)];
             [btn addGestureRecognizer:pan];
 
             [self addSubview:btn];
@@ -569,7 +553,7 @@ static void AC_HidePanel(void) {
 
 - (void)ac_togglePanel {
     if (gPanel && !gPanel.hidden) {
-        AC_HidePanel();
+        gPanel.hidden = YES;
     } else {
         AC_ShowPanel();
     }
@@ -579,20 +563,14 @@ static void AC_HidePanel(void) {
     CGPoint t = [g translationInView:self];
     g.view.center = CGPointMake(g.view.center.x + t.x, g.view.center.y + t.y);
     [g setTranslation:CGPointZero inView:self];
-
-    if (g.state == UIGestureRecognizerStateEnded) {
-        [[NSUserDefaults standardUserDefaults] setObject:NSStringFromCGPoint(g.view.center)
-                                                  forKey:@"ACBtnCenter"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-    }
 }
 
 %end
 
-#pragma mark - ============================================================
-#pragma mark Init
-#pragma mark ============================================================
+// ============================================================
+// Init
+// ============================================================
 
 %ctor {
-    NSLog(@"[AutoClickerTweak] Loaded ✔  — Interval: 1.0s → 10.0s");
+    NSLog(@"[AutoClickerTweak] Loaded ✔ Interval 1.0s → 10.0s");
 }
