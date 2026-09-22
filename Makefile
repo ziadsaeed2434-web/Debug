@@ -10,7 +10,6 @@ AutoClickerTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-va
 AutoClickerTweak_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore
 AutoClickerTweak_PRIVATE_FRAMEWORKS = IOKit GraphicsServices
 AutoClickerTweak_LIBRARIES = substrate
-AutoClickerTweak_LDFLAGS = -lIOKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
