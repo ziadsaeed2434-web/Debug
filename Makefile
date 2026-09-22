@@ -8,7 +8,7 @@ TWEAK_NAME = AutoClickerTweak
 AutoClickerTweak_FILES = Tweak.xm
 AutoClickerTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-variable -Wno-module-import-in-extern-c -Wno-incomplete-implementation
 AutoClickerTweak_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore
-AutoClickerTweak_PRIVATE_FRAMEWORKS = IOKit GraphicsServices
+AutoClickerTweak_PRIVATE_FRAMEWORKS = IOKit
 AutoClickerTweak_LIBRARIES = substrate
 
 include $(THEOS_MAKE_PATH)/tweak.mk
