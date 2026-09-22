@@ -1,5 +1,5 @@
 // ============================================================
-// AutoClickerTweak - Tweak.xm  (FINAL FIXED VERSION)
+// AutoClickerTweak - Tweak.xm  (FINAL STABLE VERSION)
 // ============================================================
 
 #import <UIKit/UIKit.h>
@@ -14,8 +14,13 @@
 #import <IOKit/hid/IOHIDEventTypes.h>
 #import <IOKit/hid/IOHIDEventData.h>
 
+// ثوابت احتياطية
+#ifndef kIOHIDEventFieldIsBuiltIn
+#define kIOHIDEventFieldIsBuiltIn (IOHIDEventField)0xB0019
+#endif
+
 // ============================================================
-// UITouch Category
+// تصريحات الدوال الخاصة (بدون @implementation لتجنب Werror)
 // ============================================================
 
 @interface UITouch (FakeTouchPrivate)
@@ -39,38 +44,31 @@
 - (void)_setHIDEvent:(IOHIDEventRef)event;
 @end
 
-@implementation UITouch (FakeTouchPrivate)
-@end
-@implementation UIApplication (FakeTouchPrivate)
-@end
-@implementation UIEvent (FakeTouchPrivate)
-@end
-
 // ============================================================
-// Helper: safe objc_msgSend casts
+// Helper: safe objc_msgSend
 // ============================================================
 
-static inline void UITouch_SetWindow(id self, SEL _cmd, id win) {
-    ((void (*)(id, SEL, id))objc_msgSend)(self, _cmd, win);
+static inline void AC_SetWindow(id self, id win) {
+    ((void (*)(id, SEL, id))objc_msgSend)(self, @selector(setWindow:), win);
 }
-static inline void UITouch_SetView(id self, SEL _cmd, id v) {
-    ((void (*)(id, SEL, id))objc_msgSend)(self, _cmd, v);
+static inline void AC_SetView(id self, id v) {
+    ((void (*)(id, SEL, id))objc_msgSend)(self, @selector(setView:), v);
 }
-static inline void UITouch_SetPhase(id self, SEL _cmd, UITouchPhase p) {
-    ((void (*)(id, SEL, NSInteger))objc_msgSend)(self, _cmd, (NSInteger)p);
+static inline void AC_SetPhase(id self, UITouchPhase p) {
+    ((void (*)(id, SEL, NSInteger))objc_msgSend)(self, @selector(setPhase:), (NSInteger)p);
 }
-static inline void UITouch_SetTimestamp(id self, SEL _cmd, NSTimeInterval t) {
-    ((void (*)(id, SEL, double))objc_msgSend)(self, _cmd, t);
+static inline void AC_SetTimestamp(id self, NSTimeInterval t) {
+    ((void (*)(id, SEL, double))objc_msgSend)(self, @selector(setTimestamp:), t);
 }
-static inline void UITouch_SetLocation(id self, SEL _cmd, CGPoint p, BOOL reset) {
-    ((void (*)(id, SEL, CGPoint, BOOL))objc_msgSend)(self, _cmd, p, reset);
+static inline void AC_SetLocation(id self, CGPoint p, BOOL reset) {
+    ((void (*)(id, SEL, CGPoint, BOOL))objc_msgSend)(self, @selector(_setLocationInWindow:resetPrevious:), p, reset);
 }
-static inline void UITouch_SetBool(id self, SEL _cmd, BOOL flag) {
-    ((void (*)(id, SEL, BOOL))objc_msgSend)(self, _cmd, flag);
+static inline void AC_SetBool(id self, SEL sel, BOOL flag) {
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(self, sel, flag);
 }
 
 // ============================================================
-// Build IOHID event from touches (correct signatures)
+// إنشاء حدث HID
 // ============================================================
 
 static IOHIDEventRef AC_CreateHIDEventWithTouches(NSArray *touches) {
@@ -79,27 +77,18 @@ static IOHIDEventRef AC_CreateHIDEventWithTouches(NSArray *touches) {
     timeStamp.hi = (UInt32)(abTime >> 32);
     timeStamp.lo = (UInt32)(abTime);
 
-    // 1) Hand / digitizer container event
     IOHIDEventRef handEvent = IOHIDEventCreateDigitizerEvent(
         kCFAllocatorDefault,
         timeStamp,
         kIOHIDDigitizerTransducerTypeHand,
-        0,          // index
-        0,          // identity
-        0,          // eventMask
-        0,          // buttonMask
-        0,          // options
-        0, 0, 0,    // x, y, z
-        0, 0,       // tipPressure, barrelPressure
-        false,      // range
-        false,      // touch
-        0);         // options2
+        0, 0, 0, 0,
+        0, 0, 0,
+        0, 0,
+        false, false,
+        0);
 
     if (!handEvent) return NULL;
 
-    IOHIDEventSetIntegerValue(handEvent, kIOHIDEventFieldIsBuiltIn, 1);
-
-    // 2) Finger events
     for (NSUInteger i = 0; i < touches.count; i++) {
         UITouch *touch = touches[i];
         UITouchPhase phase = touch.phase;
@@ -108,23 +97,19 @@ static IOHIDEventRef AC_CreateHIDEventWithTouches(NSArray *touches) {
         IOHIDEventRef fingerEvent = IOHIDEventCreateDigitizerFingerEventWithQuality(
             kCFAllocatorDefault,
             timeStamp,
-            (uint32_t)(i + 1),          // index
-            2,                           // identity
-            0,                           // eventMask
+            (uint32_t)(i + 1),
+            2,
+            0,
             (IOHIDFloat)loc.x,
             (IOHIDFloat)loc.y,
-            0,                           // z
-            0,                           // tipPressure
-            0,                           // twist
-            1.0, 1.0,                    // minorRadius, majorRadius
-            1.0, 1.0, 0.0,               // quality, density, irregularity
-            false,                       // range
+            0, 0, 0,
+            1.0, 1.0,
+            1.0, 1.0, 0.0,
+            false,
             (phase != UITouchPhaseEnded),
-            0);                          // options
+            0);
 
         if (!fingerEvent) continue;
-
-        IOHIDEventSetIntegerValue(fingerEvent, kIOHIDEventFieldIsBuiltIn, 1);
         IOHIDEventAppendEvent(handEvent, fingerEvent);
         CFRelease(fingerEvent);
     }
@@ -132,58 +117,40 @@ static IOHIDEventRef AC_CreateHIDEventWithTouches(NSArray *touches) {
 }
 
 // ============================================================
-// UITouch factory
+// UITouch Factory
 // ============================================================
 
-@interface UITouch (ACFactory)
-- (instancetype)ac_initAtPoint:(CGPoint)point inWindow:(UIWindow *)window;
-- (void)ac_setPhase:(UITouchPhase)phase;
-- (void)ac_setLocationInWindow:(CGPoint)point;
-@end
-
-@implementation UITouch (ACFactory)
-
-- (instancetype)ac_initAtPoint:(CGPoint)point inWindow:(UIWindow *)window {
-    id touch = ((id (*)(id, SEL))objc_msgSend)(self, @selector(init));
+static UITouch *AC_MakeTouch(CGPoint point, UIWindow *window) {
+    UITouch *touch = [[UITouch alloc] init];
     if (!touch) return nil;
 
-    UITouch_SetWindow(touch, @selector(setWindow:), window);
-    UITouch_SetLocation(touch, @selector(_setLocationInWindow:resetPrevious:), point, YES);
+    AC_SetWindow(touch, window);
+    AC_SetLocation(touch, point, YES);
 
     UIView *hitView = [window hitTest:point withEvent:nil];
-    UITouch_SetView(touch, @selector(setView:), hitView);
-    UITouch_SetPhase(touch, @selector(setPhase:), UITouchPhaseBegan);
+    AC_SetView(touch, hitView);
+    AC_SetPhase(touch, UITouchPhaseBegan);
 
     if ([touch respondsToSelector:@selector(_setIsFirstTouchForView:)]) {
-        UITouch_SetBool(touch, @selector(_setIsFirstTouchForView:), YES);
+        AC_SetBool(touch, @selector(_setIsFirstTouchForView:), YES);
     }
     if ([touch respondsToSelector:@selector(_setIsTapToClick:)]) {
-        UITouch_SetBool(touch, @selector(_setIsTapToClick:), NO);
+        AC_SetBool(touch, @selector(_setIsTapToClick:), NO);
     }
 
-    UITouch_SetTimestamp(touch, @selector(setTimestamp:),
-                         [[NSProcessInfo processInfo] systemUptime]);
+    AC_SetTimestamp(touch, [[NSProcessInfo processInfo] systemUptime]);
 
     if ([touch respondsToSelector:@selector(setGestureView:)]) {
-        UITouch_SetView(touch, @selector(setGestureView:), hitView);
+        AC_SetView(touch, hitView);
     }
-
     return touch;
 }
 
-- (void)ac_setPhase:(UITouchPhase)phase {
-    UITouch_SetTimestamp(self, @selector(setTimestamp:),
-                         [[NSProcessInfo processInfo] systemUptime]);
-    UITouch_SetPhase(self, @selector(setPhase:), phase);
+static void AC_UpdateTouch(UITouch *touch, CGPoint point, UITouchPhase phase) {
+    AC_SetTimestamp(touch, [[NSProcessInfo processInfo] systemUptime]);
+    AC_SetLocation(touch, point, NO);
+    AC_SetPhase(touch, phase);
 }
-
-- (void)ac_setLocationInWindow:(CGPoint)point {
-    UITouch_SetTimestamp(self, @selector(setTimestamp:),
-                         [[NSProcessInfo processInfo] systemUptime]);
-    UITouch_SetLocation(self, @selector(_setLocationInWindow:resetPrevious:), point, NO);
-}
-
-@end
 
 // ============================================================
 // ZSFakeTouch
@@ -217,8 +184,7 @@ static UITouch *gZSTouch = nil;
 
     IOHIDEventRef hid = AC_CreateHIDEventWithTouches(touches);
     if (hid) {
-        ((void (*)(id, SEL, IOHIDEventRef))objc_msgSend)(event,
-            @selector(_setHIDEvent:), hid);
+        ((void (*)(id, SEL, IOHIDEventRef))objc_msgSend)(event, @selector(_setHIDEvent:), hid);
         CFRelease(hid);
     }
 
@@ -233,34 +199,30 @@ static UITouch *gZSTouch = nil;
     UIWindow *window = [self lastWindow];
     if (!window) return;
 
-    UITouch *touch = [[UITouch alloc] ac_initAtPoint:point inWindow:window];
+    UITouch *touch = AC_MakeTouch(point, window);
     gZSTouch = touch;
-    [touch ac_setPhase:UITouchPhaseBegan];
+    AC_SetPhase(touch, UITouchPhaseBegan);
 
     UIEvent *event = [self eventWithTouches:@[touch]];
     [[UIApplication sharedApplication] sendEvent:event];
 
     if (touch.phase == UITouchPhaseBegan ||
         touch.phase == UITouchPhaseMoved) {
-        [touch ac_setPhase:UITouchPhaseStationary];
+        AC_SetPhase(touch, UITouchPhaseStationary);
     }
 }
 
 + (void)moveTouchWithPoint:(CGPoint)point {
     if (!gZSTouch) return;
-    [gZSTouch ac_setLocationInWindow:point];
-    [gZSTouch ac_setPhase:UITouchPhaseMoved];
-
+    AC_UpdateTouch(gZSTouch, point, UITouchPhaseMoved);
     UIEvent *event = [self eventWithTouches:@[gZSTouch]];
     [[UIApplication sharedApplication] sendEvent:event];
-    [gZSTouch ac_setPhase:UITouchPhaseStationary];
+    AC_SetPhase(gZSTouch, UITouchPhaseStationary);
 }
 
 + (void)endTouchWithPoint:(CGPoint)point {
     if (!gZSTouch) return;
-    [gZSTouch ac_setLocationInWindow:point];
-    [gZSTouch ac_setPhase:UITouchPhaseEnded];
-
+    AC_UpdateTouch(gZSTouch, point, UITouchPhaseEnded);
     UIEvent *event = [self eventWithTouches:@[gZSTouch]];
     [[UIApplication sharedApplication] sendEvent:event];
     gZSTouch = nil;
